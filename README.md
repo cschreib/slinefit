@@ -57,7 +57,7 @@ slinefit spectrum.fits z0=2.369 dz=0.002 delta_z=0.5 width_min=50 width_max=500 
 
 More detailed information can be obtained by calling ```slinefit``` without arguments. There are a lots of small tweaks you can apply using command line options, do take a look!
 
-Below are two examples of fits obtaine with ```slinefit```. On the left is a fit of the [OII] line on top of strong continuum with Balmer absorption (the absorption lines are part of the continuum template, which is was created with the Bruzual & Charlot 2003 models). On the right is a rest-FUV spectrum with the CII] emission line and several FeII absorption lines.
+Below are two examples of fits obtaine with ```slinefit```. The first is a fit of the [OII] line on top of strong continuum with Balmer absorption (the absorption lines are part of the continuum template, which is was created with the Bruzual & Charlot 2003 models). The second is a rest-FUV spectrum with the CII] emission line and several FeII absorption lines.
 
 ![Demo OII](demo_oii.png) ![Demo UV](demo_uv.png)
 
