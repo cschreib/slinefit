@@ -76,4 +76,4 @@ cmake ../
 make install
 ```
 
-This will create an executable called ```slinefit``` in the ```slinefit/bin``` directory, which you can use immediately.
+This will create an executable called ```slinefit``` in the ```slinefit/bin``` directory, which you can use immediately. A default set of continuum template can be found in ```slinefit/bin/templates```; these correspond to the template set of EAzY (Brammer et al. 2008), for which I increased the spectral resolution by fitting them with FAST (Kriek et al. 2009).
