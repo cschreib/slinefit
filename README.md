@@ -6,7 +6,7 @@
 * Can fit one or more continuum templates simultaneously with emission and/or absorption lines.
 * Any number of emission/absorption lines can be used in the fit (can be zero, or just one, or all the known lines, or any combination of lines).
 * The best solution and probability distribution are determined from the chi2.
-* Lines velocity widths and offsets can be varied, either on a fixed grid, or using a Levenberg-Markwardt solver.
+* Lines velocity widths and offsets can be varied, either on a fixed grid using a linear solver, or using a Levenberg-Markwardt solver.
 * Line widths can be constrained to be the same for all lines, or to vary independently.
 * Accurate uncertainties on line properties (flux, width, offset) can be derived using Monte Carlo simulations.
 * Can use multithreading to speed up the Monte Carlo simulations.
