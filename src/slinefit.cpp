@@ -291,6 +291,7 @@ int phypp_main(int argc, char* argv[]) {
     uint_t tseed = 42;
     uint_t flux_hdu = 1;
     uint_t error_hdu = 2;
+    double chi2_cor = 1.0;
     vec1s tlines;
 
     read_args(argc-1, argv+1, arg_list(z0, dz, name(tlines, "lines"), width_min, width_max,
@@ -300,7 +301,7 @@ int phypp_main(int argc, char* argv[]) {
         allow_offsets, offset_max, offset_snr_min, delta_offset, residual_rescale,
         mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"), full_range,
         forbid_absorption, components, comp_offset_min, comp_offset_max, delta_comp_offset,
-        save_line_models
+        save_line_models, chi2_cor
     ));
 
     // Check validity of input and create output directories if needed
@@ -1381,7 +1382,7 @@ int phypp_main(int argc, char* argv[]) {
     }
 
     // Compute reduced chi2 grid
-    vec1d pz = exp(-0.5*(best_fit.chi2_grid - best_fit.chi2));
+    vec1d pz = exp(-0.5*(best_fit.chi2_grid - best_fit.chi2)/chi2_cor);
     pz /= integrate(z_grid, pz);
 
     // Estimate redshift uncertainties
@@ -1787,6 +1788,10 @@ void print_help(const std::map<std::string,line_t>& db) {
         "spectral elements close to the lines (which is ). This will only make sense if "
         "there is continuum emission and you are using the 'fit_continuum_template' option, "
         "in which case it will increase the weight of the continuum fit in the chi2.");
+    bullet("chi2_cor", "Correction factor to apply to the chi2 value before computing the "
+        "redshift probability distribution. The default is one, which applies no correction. "
+        "Fitting mock MOSFIRE spectra with continuum templates, a value of 2 was found to "
+        "give accurate probability distributions.");
     bullet("full_range", "Set this flag to fit the entire spectrum. By default the program "
         "will ignore the ranges of the spectrum that are not covered by any line given the "
         "searched redshift range. This speeds up computation, but also ignores some of the "
