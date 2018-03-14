@@ -1219,11 +1219,15 @@ int phypp_main(int argc, char* argv[]) {
             rescale[where(!is_finite(rescale))] = max(rescale[idff]);
 
             // Rescale whole error spectrum
-            vec1u ids = sort(rlam); rlam = rlam[ids]; rescale = rescale[ids];
-            vec1d rsc = interpolate(rescale, rlam, lam);
-            rsc[where(lam < min(rlam))] = rescale.front();
-            rsc[where(lam > max(rlam))] = rescale.back();
-            err *= rsc;
+            if (lines.size() > 1) {
+                vec1u ids = sort(rlam); rlam = rlam[ids]; rescale = rescale[ids];
+                vec1d rsc = interpolate(rescale, rlam, lam);
+                rsc[where(lam < min(rlam))] = rescale.front();
+                rsc[where(lam > max(rlam))] = rescale.back();
+                err *= rsc;
+            } else {
+                err *= rescale[0];
+            }
 
             if (verbose) {
                 note("rescaling uncertainties from residual (min=", min(rescale), ", max=", max(rescale), ")");
