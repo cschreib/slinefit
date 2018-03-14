@@ -292,6 +292,7 @@ int phypp_main(int argc, char* argv[]) {
     uint_t flux_hdu = 1;
     uint_t error_hdu = 2;
     double chi2_cor = 1.0;
+    double xmin = dnan, xmax = dnan;
     vec1s tlines;
 
     read_args(argc-1, argv+1, arg_list(z0, dz, name(tlines, "lines"), width_min, width_max,
@@ -301,7 +302,7 @@ int phypp_main(int argc, char* argv[]) {
         allow_offsets, offset_max, offset_snr_min, delta_offset, residual_rescale,
         mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"), full_range,
         forbid_absorption, components, comp_offset_min, comp_offset_max, delta_comp_offset,
-        save_line_models, chi2_cor
+        save_line_models, chi2_cor, xmin, xmax
     ));
 
     // Check validity of input and create output directories if needed
@@ -458,117 +459,222 @@ int phypp_main(int argc, char* argv[]) {
 
     // Read spectrum
     if (verbose) note("read input spectrum...");
-    std::string infile = argv[1];
+
     vec1d flx, err;
-    fits::input_image fimg(infile);
-    fimg.reach_hdu(flux_hdu);
-    fimg.read(flx);
-    fimg.reach_hdu(error_hdu);
-    fimg.read(err);
+    vec1d lam, laml, lamu;
+    vec1b goodspec, goodspec_flag;
 
-    // Come back to flux HDU to make sure we read the WCS from there
-    fimg.reach_hdu(flux_hdu);
+    vec1s spec_file;
+    vec1b spec_freq;
+    vec1u spec_l0, spec_l1;
 
-    // Build wavelength axis
-    uint_t nlam = flx.size();
-    double cdelt = 1, crpix = 1, crval = 1;
-    if (!fimg.read_keyword("CDELT1", cdelt) ||
-        !fimg.read_keyword("CRPIX1", crpix) ||
-        !fimg.read_keyword("CRVAL1", crval)) {
-        error("could not read WCS information for wavelength axis");
-        return 1;
-    }
-
-    // Handle wavelength axis units
     bool frequency = false;
-    std::string cunit; {
-        if (!fimg.read_keyword("CUNIT1", cunit)) {
-            warning("could not find unit of wavelength axis");
-            note("assuming wavelengths are given in microns");
-        } else {
-            cunit = tolower(cunit);
-            double conv = 1.0;
-            if (cunit == "angstrom") {
-                conv = 1e-4;
-            } else if (cunit == "nm") {
-                conv = 1e-3;
-            } else if (cunit == "um" || cunit == "micron") {
-                conv = 1.0;
-            } else if (cunit == "mm") {
-                conv = 1e3;
-            } else if (cunit == "cm") {
-                conv = 1e4;
-            } else if (cunit == "m") {
-                conv = 1e6;
-            } else if (cunit == "hz") {
-                frequency = true;
-                conv = 1.0;
-            } else if (cunit == "khz") {
-                frequency = true;
-                conv = 1e3;
-            } else if (cunit == "mhz") {
-                frequency = true;
-                conv = 1e6;
-            } else if (cunit == "ghz") {
-                frequency = true;
-                conv = 1e9;
+    bool first_spectrum = true;
+
+    auto read_spectrum = [&](std::string filename) {
+        vec1d tflx, terr;
+        fits::input_image fimg(filename);
+        fimg.reach_hdu(flux_hdu);
+        fimg.read(tflx);
+        fimg.reach_hdu(error_hdu);
+        fimg.read(terr);
+
+        // Come back to flux HDU to make sure we read the WCS from there
+        fimg.reach_hdu(flux_hdu);
+
+        // Build wavelength axis
+        uint_t nlam = tflx.size();
+        double cdelt = 1, crpix = 1, crval = 1;
+        if (!fimg.read_keyword("CDELT1", cdelt) ||
+            !fimg.read_keyword("CRPIX1", crpix) ||
+            !fimg.read_keyword("CRVAL1", crval)) {
+            error("reading ", filename);
+            error("could not read WCS information for wavelength axis");
+            return false;
+        }
+
+        // Handle wavelength axis units
+        bool tfrequency = false;
+        bool tlog_axis = false;
+        std::string cunit, ctype; {
+            if (!fimg.read_keyword("CUNIT1", cunit)) {
+                warning("reading ", filename);
+                warning("could not find unit of wavelength axis");
+                note("assuming wavelengths are given in microns");
             } else {
-                error("unrecognized wavelength/frequency unit '", cunit, "'");
-                return 1;
+                cunit = tolower(cunit);
+                double conv = 1.0;
+                if (cunit == "angstrom") {
+                    conv = 1e-4;
+                } else if (cunit == "nm") {
+                    conv = 1e-3;
+                } else if (cunit == "um" || cunit == "micron") {
+                    conv = 1.0;
+                } else if (cunit == "mm") {
+                    conv = 1e3;
+                } else if (cunit == "cm") {
+                    conv = 1e4;
+                } else if (cunit == "m") {
+                    conv = 1e6;
+                } else if (cunit == "hz") {
+                    tfrequency = true;
+                    conv = 1.0;
+                } else if (cunit == "khz") {
+                    tfrequency = true;
+                    conv = 1e3;
+                } else if (cunit == "mhz") {
+                    tfrequency = true;
+                    conv = 1e6;
+                } else if (cunit == "ghz") {
+                    tfrequency = true;
+                    conv = 1e9;
+                } else {
+                    error("unrecognized wavelength/frequency unit '", cunit, "'");
+                    return false;
+                }
+
+                crval *= conv;
+                cdelt *= conv;
             }
 
-            crval *= conv;
-            cdelt *= conv;
+            if (fimg.read_keyword("CTYPE1", ctype)) {
+                if (start_with(ctype, "LOG")) {
+                    tlog_axis = true;
+                }
+            }
         }
-    }
 
-    vec1d lam, laml, lamu;
-    if (!frequency) {
-        lam = crval + cdelt*(findgen(nlam) + (1 - crpix));
-        laml = lam - 0.5*cdelt;
-        lamu = lam + 0.5*cdelt;
-    } else {
-        // x-axis is frequency, convert that to a wavelength
-        // and do not forget to reverse the data so that wavelenths are
-        // strictly increasing
-        vec1d freq = crval + cdelt*(findgen(nlam) + (1 - crpix));
-        vec1d freql = freq - 0.5*cdelt;
-        vec1d frequ = freq + 0.5*cdelt;
-        lam = reverse(1e6*2.99792e8/freq);
-        laml = reverse(1e6*2.99792e8/frequ);
-        lamu = reverse(1e6*2.99792e8/freql);
-        flx = reverse(flx);
-        err = reverse(err);
-        cdelt = median(lamu-laml);
+        if (first_spectrum) {
+            frequency = tfrequency;
+            first_spectrum = false;
+        } else {
+            if (tfrequency != frequency) {
+                warning("mixing together spectra in wavelength and frequency units (is this intended?)");
+            }
+        }
+
+        vec1d tlam, tlaml, tlamu;
+        vec1d xaxis = crval + cdelt*(dindgen(nlam) + (1 - crpix));
+        vec1d xaxisl = xaxis - 0.5*cdelt;
+        vec1d xaxisu = xaxis + 0.5*cdelt;
+
+        if (tlog_axis) {
+            xaxis = e10(xaxis);
+            xaxisl = e10(xaxisl);
+            xaxisu = e10(xaxisu);
+        }
+
+        if (!tfrequency) {
+            tlam = xaxis;
+            tlaml = xaxisl;
+            tlamu = xaxisu;
+        } else {
+            // x-axis is frequency, convert that to a wavelength
+            // and do not forget to reverse the data so that wavelenths are
+            // strictly increasing
+            tlam = reverse(1e6*2.99792e8/xaxis);
+            tlaml = reverse(1e6*2.99792e8/xaxisu);
+            tlamu = reverse(1e6*2.99792e8/xaxisl);
+            tflx = reverse(tflx);
+            terr = reverse(terr);
+        }
+
+        // Compute median wavelength step (in case frequency or log axis, may be variable)
+        cdelt = median(tlamu-tlaml);
+
         if (verbose) {
-            note("input spectrum in frequency unit, converting to wavelength");
-            note("new coverage: ", lam.front(), " to ", lam.back(), " microns (average cdelt = ", cdelt, ")");
+            note("reading ", filename);
+            note("input spectrum in ", (tlog_axis ? "logarithmic " : ""),
+                (tfrequency ? "frequency" : "wavelength"), " unit");
+            note("wavelength coverage: ", tlam.front(), " to ", tlam.back(),
+                " microns (average cdelt = ", cdelt, ")");
+        }
+
+        // Identify good regions of the spectrum
+        vec1b tgoodspec = is_finite(tflx) && is_finite(terr) && terr > 0;
+        if (count(tgoodspec) <= lambda_pad*2) {
+            error("reading ", filename);
+            error("this spectrum does not contain any valid point");
+            return false;
+        }
+
+        // Flag out the pixels at the border of the spectrum
+        vec1b tgoodspec_flag = tgoodspec;
+        tgoodspec = keep_gaps_and_expand(tgoodspec, 10, lambda_pad);
+
+        // Apply user-selected fitting range
+        if (is_finite(xmin)) {
+            tgoodspec = tgoodspec && xaxis >= xmin;
+        }
+
+        if (is_finite(xmax)) {
+            tgoodspec = tgoodspec && xaxis <= xmax;
+        }
+
+        // Identify regions of the spectrum that are NaN and give them zero weight
+        {
+            vec1u id_flagged = where(tgoodspec && !tgoodspec_flag);
+
+            tflx[id_flagged] = 0;
+            terr[id_flagged] = 1e20*median(terr[where(tgoodspec_flag)]);
+        }
+
+        spec_file.push_back(filename);
+        spec_freq.push_back(tfrequency);
+        spec_l0.push_back(flx.size());
+        spec_l1.push_back(flx.size()+tflx.size()-1);
+
+        append(flx, tflx);
+        append(err, terr);
+        append(lam, tlam);
+        append(laml, tlaml);
+        append(lamu, tlamu);
+        append(goodspec, tgoodspec);
+        append(goodspec_flag, tgoodspec_flag);
+
+        return true;
+    };
+
+    std::string infile = argv[1];
+
+    if (end_with(infile, ".fits")) {
+        if (!read_spectrum(infile)) {
+            return 1;
+        }
+    } else {
+        if (verbose) {
+            note("user specified a list of spectra as input, loading them one by one");
+        }
+
+        std::ifstream in(infile);
+        if (!in.is_open()) {
+            error("could not open '", infile, "'");
+            return 1;
+        }
+
+        std::string line;
+        while (std::getline(in, line)) {
+            line = trim(line);
+            if (line.empty() || line[0] == '#') continue;
+
+            if (line[0] != '/') line = file::get_directory(infile)+line;
+
+            if (!read_spectrum(line)) {
+                return 1;
+            }
         }
     }
 
     uint_t orig_nlam = lam.size();
 
-    // Identify good regions of the spectrum
-    vec1b goodspec = is_finite(flx) && is_finite(err) && err > 0;
-    if (count(goodspec) <= lambda_pad*2) {
-        error("the spectrum does not contain any valid point");
-        return 1;
-    }
-
-    // Flag out the pixels at the border of the spectrum
-    vec1b goodspec_flag = goodspec;
-    goodspec = keep_gaps_and_expand(goodspec, 10, lambda_pad);
-
-    // Identify regions of the spectrum that are NaN and give them zero weight
-    {
-        vec1u id_flagged = where(goodspec && !goodspec_flag);
-        flx[id_flagged] = 0;
-        err[id_flagged] = 1e20*median(err[where(goodspec_flag)]);
-    }
-
     // Select a wavelength domain centered on the line(s)
-    const vec1u idl = (full_range ? where(goodspec) : where(goodspec &&
-        lam > lambda_min*(1.0+z0-2*dz) && lam < lambda_max*(1.0+z0+2*dz)));
+    const vec1u idl = [&]() {
+        if (full_range) {
+            return where(goodspec);
+        } else {
+            return where(goodspec && lam > lambda_min*(1.0+z0-2*dz) && lam < lambda_max*(1.0+z0+2*dz));
+        }
+    }();
 
     if (idl.empty()) {
         if (full_range) {
@@ -591,6 +697,7 @@ int phypp_main(int argc, char* argv[]) {
     goodspec_flag = goodspec_flag[idl];
 
     // Define redshift grid so as to have the requested number of samples per wavelength element
+    double cdelt = abs(lam[1]-lam[0]);
     double tdz = delta_z*cdelt/mean(lam);
     uint_t nz = 2*ceil(dz/tdz)+1;
     vec1d z_grid = rgen(z0-dz, z0+dz, nz);
@@ -856,14 +963,15 @@ int phypp_main(int argc, char* argv[]) {
             if (better) {
                 fres.chi2 = res.chi2;
                 fres.z = tz;
-                fres.flux             = res.params[id_amp];
-                fres.flux_err         = res.errors[id_amp];
-                fres.width            = res.params[id_width];
-                fres.width_err        = res.errors[id_width];
-                fres.offset           = res.params[id_offset];
-                fres.offset_err       = res.errors[id_offset];
-                fres.comp_offset      = res.params[id_comp_offset];
-                fres.comp_offset_err  = res.errors[id_comp_offset];
+
+                fres.flux            = res.params[id_amp];
+                fres.flux_err        = res.errors[id_amp];
+                fres.width           = res.params[id_width];
+                fres.width_err       = res.errors[id_width];
+                fres.offset          = res.params[id_offset];
+                fres.offset_err      = res.errors[id_offset];
+                fres.comp_offset     = res.params[id_comp_offset];
+                fres.comp_offset_err = res.errors[id_comp_offset];
 
                 fres.model = model(lt, res.params);
                 vec1d tp = res.params; tp[id_amp] = 0;
@@ -918,7 +1026,7 @@ int phypp_main(int argc, char* argv[]) {
             }
 
             // Exclude models that are zero from the fit
-            vec1u idne = where(partial_total(1, sqr(m)) > 0.0);
+            vec1u idne = where(partial_total(1, abs(m)) > 0.0);
             m = m(idne,_);
 
             linfit_result res = linfit_pack(tflx, terr, m);
@@ -1412,7 +1520,8 @@ int phypp_main(int argc, char* argv[]) {
     if (verbose) {
         if (is_finite(best_fit.z)) {
             print("best redshift: ", best_fit.z, " + ", zup, " - ", zlow,
-                " (chi2: ", best_fit.chi2, ", reduced: ", best_fit.chi2/ndof, ")");
+                " (chi2: ", best_fit.chi2, ", reduced: ", best_fit.chi2/ndof,
+                is_finite(zodds) ? ", odds: "+strn(zodds) : "", ")");
         } else {
             print("could not fit any redshift...");
         }
@@ -1587,47 +1696,66 @@ int phypp_main(int argc, char* argv[]) {
         vec1d bmodel = reshape(best_fit.model, idl, orig_nlam, dnan);
         vec1d bmodelc = reshape(best_fit.model_continuum, idl, orig_nlam, dnan);
 
-        if (frequency) {
-            // Reverse back the array to frequency ordering
-            bmodel = reverse(bmodel);
-            bmodelc = reverse(bmodelc);
+        for (uint_t s : range(spec_file)) {
+            // Retrieve spectral element from this spectrum
+            vec1d tbmodel  = bmodel[spec_l0[s]-_-spec_l1[s]];
+            vec1d tbmodelc = bmodelc[spec_l0[s]-_-spec_l1[s]];
+
+            if (spec_freq[s]) {
+                // Reverse back the array to frequency ordering
+                tbmodel = reverse(tbmodel);
+                tbmodelc = reverse(tbmodelc);
+            }
+
+            // Then save it
+            fits::input_image fimg(spec_file[s]);
+            fimg.reach_hdu(flux_hdu);
+
+            filebase = outdir+file::remove_extension(file::get_basename(spec_file[s]));
+            fits::output_image ospec(filebase+"_slfit_model.fits");
+
+            ospec.reach_hdu(1);
+            ospec.write(tbmodel);
+            ospec.write_header(fimg.read_header());
+            ospec.write_keyword("MODEL", "full");
+            ospec.write_keyword("BESTZ", best_fit.z);
+
+            ospec.reach_hdu(2);
+            ospec.write(tbmodelc);
+            ospec.write_header(fimg.read_header());
+            ospec.write_keyword("MODEL", "continuum");
+            ospec.write_keyword("BESTZ", best_fit.z);
         }
-
-        // Then save it
-        fits::output_image ospec(filebase+"_slfit_model.fits");
-
-        ospec.reach_hdu(1);
-        ospec.write(bmodel);
-        ospec.write_header(fimg.read_header());
-        ospec.write_keyword("MODEL", "full");
-        ospec.write_keyword("BESTZ", best_fit.z);
-
-        ospec.reach_hdu(2);
-        ospec.write(bmodelc);
-        ospec.write_header(fimg.read_header());
-        ospec.write_keyword("MODEL", "continuum");
-        ospec.write_keyword("BESTZ", best_fit.z);
     }
 
     if (save_line_models && !best_fit.models.empty()) {
         // First bring back the models into the original wavelength grid
         vec2d bmodels = reshape2(best_fit.models, idl, orig_nlam, dnan);
 
-        if (frequency) {
-            // Reverse back the arrays to frequency ordering
-            for (uint_t il : range(lines)) {
-                bmodels(il,_) = reverse(bmodels(il,_));
+        for (uint_t s : range(spec_file)) {
+            // Retrieve spectral element from this spectrum
+            vec2d tbmodels = bmodels(_,spec_l0[s]-_-spec_l1[s]);
+
+            if (spec_freq[s]) {
+                // Reverse back the arrays to frequency ordering
+                for (uint_t il : range(lines)) {
+                    tbmodels(il,_) = reverse(tbmodels(il,_));
+                }
             }
-        }
 
-        // Then save them
-        fits::output_image ospecs(filebase+"_slfit_line_models.fits");
+            // Then save them
+            fits::input_image fimg(spec_file[s]);
+            fimg.reach_hdu(flux_hdu);
 
-        for (uint_t il : range(lines)) {
-            ospecs.reach_hdu(il+1);
-            ospecs.write(bmodels(il,_));
-            ospecs.write_header(fimg.read_header());
-            ospecs.write_keyword("MODEL", lines[il].name);
+            filebase = outdir+file::remove_extension(file::get_basename(spec_file[s]));
+            fits::output_image ospecs(filebase+"_slfit_line_models.fits");
+
+            for (uint_t il : range(lines)) {
+                ospecs.reach_hdu(il+1);
+                ospecs.write(tbmodels(il,_));
+                ospecs.write_header(fimg.read_header());
+                ospecs.write_keyword("MODEL", lines[il].name);
+            }
         }
     }
 
