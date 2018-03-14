@@ -890,7 +890,15 @@ int phypp_main(int argc, char* argv[]) {
                     double dv = p[id_offset[il]] + p[id_comp_offset[lines[il].component]];
                     double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
                     double amp = 1e-4*lines[il].ratio[isl];
-                    m(id_mline[il],_) += integrate_gauss(laml, lamu, l0, lw, amp);
+
+                    auto bl = bounds(lam, l0-5*lw, l0+5*lw);
+                    if (bl[0] == npos) bl[0] = 0;
+                    if (bl[1] == npos) bl[1] = lam.size();
+                    for (uint_t ll = bl[0]; ll < bl[1]; ++ll) {
+                        m.safe(id_mline[il],ll) += integrate_gauss(
+                            laml.safe[ll], lamu.safe[ll], l0, lw, amp
+                        );
+                    }
                 }
             }
 
