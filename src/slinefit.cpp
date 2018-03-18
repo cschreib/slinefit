@@ -291,6 +291,8 @@ int phypp_main(int argc, char* argv[]) {
     uint_t tseed = 42;
     uint_t flux_hdu = 1;
     uint_t error_hdu = 2;
+    bool use_aic = false;
+    double aic_penalty = 2.0;
     double chi2_cor = 1.0;
     double xmin = dnan, xmax = dnan;
     vec1s tlines;
@@ -302,7 +304,7 @@ int phypp_main(int argc, char* argv[]) {
         allow_offsets, offset_max, offset_snr_min, delta_offset, residual_rescale,
         mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"), full_range,
         forbid_absorption, components, comp_offset_min, comp_offset_max, delta_comp_offset,
-        save_line_models, chi2_cor, xmin, xmax
+        save_line_models, chi2_cor, use_aic, aic_penalty, xmin, xmax
     ));
 
     // Check validity of input and create output directories if needed
@@ -441,7 +443,7 @@ int phypp_main(int argc, char* argv[]) {
 
             for (uint_t i : range(1, components)) {
                 lines.push_back(lref);
-                lines.back().name += "_comp"+strn(i+1);
+                lines.back().name += "_comp"+to_string(i+1);
                 lines.back().component = i;
             }
         }
@@ -484,19 +486,53 @@ int phypp_main(int argc, char* argv[]) {
 
         // Build wavelength axis
         uint_t nlam = tflx.size();
-        double cdelt = 1, crpix = 1, crval = 1;
-        if (!fimg.read_keyword("CDELT1", cdelt) ||
-            !fimg.read_keyword("CRPIX1", crpix) ||
-            !fimg.read_keyword("CRVAL1", crval)) {
-            error("reading ", filename);
-            error("could not read WCS information for wavelength axis");
-            return false;
+        vec1d xaxis, xaxisl, xaxisu;
+        vec1d tlam, tlaml, tlamu;
+
+        // First get axis type
+        std::string ctype;
+        bool tlog_axis = false;
+        bool tab_axis = false;
+        if (fimg.read_keyword("CTYPE1", ctype)) {
+            if (start_with(ctype, "LOG")) {
+                // Logarithmic axis
+                tlog_axis = true;
+            } else if (start_with(ctype, "TAB")) {
+                // Tabulated axis, read from other extensions
+                uint_t lowext = npos, upext = npos;
+                std::string axis = erase_begin(ctype, "TAB");
+                if (fimg.read_keyword(axis+"LOWEXT", lowext) &&
+                    fimg.read_keyword(axis+"UPEXT", upext)) {
+                    tab_axis = true;
+                    fimg.reach_hdu(lowext);
+                    fimg.read(xaxisl);
+                    fimg.reach_hdu(upext);
+                    fimg.read(xaxisu);
+                    fimg.reach_hdu(flux_hdu);
+                    xaxis = 0.5*(xaxisu + xaxisl);
+                }
+            }
+        }
+
+        if (!tab_axis) {
+            // Read linear axis
+            double cdelt = 1, crpix = 1, crval = 1;
+            if (!fimg.read_keyword("CDELT1", cdelt) ||
+                !fimg.read_keyword("CRPIX1", crpix) ||
+                !fimg.read_keyword("CRVAL1", crval)) {
+                error("reading ", filename);
+                error("could not read WCS information for wavelength axis");
+                return false;
+            }
+
+            xaxis = crval + cdelt*(dindgen(nlam) + (1 - crpix));
+            xaxisl = xaxis - 0.5*cdelt;
+            xaxisu = xaxis + 0.5*cdelt;
         }
 
         // Handle wavelength axis units
         bool tfrequency = false;
-        bool tlog_axis = false;
-        std::string cunit, ctype; {
+        std::string cunit; {
             if (!fimg.read_keyword("CUNIT1", cunit)) {
                 warning("reading ", filename);
                 warning("could not find unit of wavelength axis");
@@ -533,14 +569,9 @@ int phypp_main(int argc, char* argv[]) {
                     return false;
                 }
 
-                crval *= conv;
-                cdelt *= conv;
-            }
-
-            if (fimg.read_keyword("CTYPE1", ctype)) {
-                if (start_with(ctype, "LOG")) {
-                    tlog_axis = true;
-                }
+                xaxis *= conv;
+                xaxisl *= conv;
+                xaxisu *= conv;
             }
         }
 
@@ -553,23 +584,20 @@ int phypp_main(int argc, char* argv[]) {
             }
         }
 
-        vec1d tlam, tlaml, tlamu;
-        vec1d xaxis = crval + cdelt*(dindgen(nlam) + (1 - crpix));
-        vec1d xaxisl = xaxis - 0.5*cdelt;
-        vec1d xaxisu = xaxis + 0.5*cdelt;
-
         if (tlog_axis) {
+            // De-log the axis if needed
             xaxis = e10(xaxis);
             xaxisl = e10(xaxisl);
             xaxisu = e10(xaxisu);
         }
 
+        // Make sure we're working with wavelengths
         if (!tfrequency) {
             tlam = xaxis;
             tlaml = xaxisl;
             tlamu = xaxisu;
         } else {
-            // x-axis is frequency, convert that to a wavelength
+            // x-axis is frequency, convert that to a wavelength in microns
             // and do not forget to reverse the data so that wavelenths are
             // strictly increasing
             tlam = reverse(1e6*2.99792e8/xaxis);
@@ -579,16 +607,6 @@ int phypp_main(int argc, char* argv[]) {
             terr = reverse(terr);
         }
 
-        // Compute median wavelength step (in case frequency or log axis, may be variable)
-        cdelt = median(tlamu-tlaml);
-
-        if (verbose) {
-            note("reading ", filename);
-            note("input spectrum in ", (tlog_axis ? "logarithmic " : ""),
-                (tfrequency ? "frequency" : "wavelength"), " unit");
-            note("wavelength coverage: ", tlam.front(), " to ", tlam.back(),
-                " microns (average cdelt = ", cdelt, ")");
-        }
 
         // Identify good regions of the spectrum
         vec1b tgoodspec = is_finite(tflx) && is_finite(terr) && terr > 0;
@@ -609,6 +627,17 @@ int phypp_main(int argc, char* argv[]) {
 
         if (is_finite(xmax)) {
             tgoodspec = tgoodspec && xaxis <= xmax;
+        }
+
+        if (verbose) {
+            double cdelt = median(tlamu-tlaml);
+            vec1u idg = where(tgoodspec);
+
+            note("reading ", filename);
+            note("input spectrum in ", (tlog_axis ? "logarithmic " : ""),
+                (tfrequency ? "frequency" : "wavelength"), " unit");
+            note("wavelength coverage: ", tlam[idg].front(), " to ", tlam[idg].back(),
+                " microns (average cdelt = ", cdelt, ")");
         }
 
         // Identify regions of the spectrum that are NaN and give them zero weight
@@ -742,7 +771,7 @@ int phypp_main(int argc, char* argv[]) {
 
     if (verbose) {
         note("fitting ", flx.dims[0], " spectral elements between ",
-           lam.front(), " and ", lam.back(), " um...");
+           min(lam), " and ", max(lam), " um...");
         if (lines.empty()) {
             note("... with no line");
         } else {
@@ -779,20 +808,21 @@ int phypp_main(int argc, char* argv[]) {
     if (verbose) {
         note("average resolution of spectrum: R=", mean(lam)/cdelt);
         note(use_mpfit ? "non-linear" : "linear", " redshift search");
-        note(" - ", nz, " redshifts, step = "+strn(float(z_grid[1] - z_grid[0])));
+        note(" - ", nz, " redshifts, step = ", z_grid[1] - z_grid[0]);
 
         if (!use_mpfit && !lines.empty()) {
             if (width_grid.size() > 1) {
-                note(" - "+strn(nwidth)+" line widths, step = "+strn(float(width_grid[1] - width_grid[0]))+" km/s");
+                note(" - ", nwidth, " line widths, step = ", width_grid[1] - width_grid[0], " km/s");
             } else {
-                note(" - one line widths: "+strn(width_grid[0])+" km/s");
+                note(" - one line widths: ", width_grid[0], " km/s");
             }
         }
         if (allow_offsets) {
-            note(" - "+strn(noffset)+" line offsets, step = "+strn(float(offset_grid[1] - offset_grid[0]))+" km/s");
+            note(" - ", noffset, " line offsets, step = ", offset_grid[1] - offset_grid[0], " km/s");
         }
         if (!use_mpfit && components > 1) {
-            note(" - "+strn(ncoffset)+" component offsets, step = "+strn(float(comp_offset_grid[1] - comp_offset_grid[0]))+" km/s");
+            note(" - ", ncoffset, " component offsets, step = ",
+                comp_offset_grid[1] - comp_offset_grid[0], " km/s");
         }
     }
 
@@ -959,6 +989,13 @@ int phypp_main(int argc, char* argv[]) {
                 res.chi2 = total(sqr((tflx[id_chi2] - tmodel)/terr[id_chi2]));
             }
 
+            if (use_aic) {
+                // TODO: compute this properly...
+                uint_t nparam = p.size();
+
+                res.chi2 += aic_penalty*nparam;
+            }
+
             bool better = res.success && res.chi2 < fres.chi2;
             if (better) {
                 fres.chi2 = res.chi2;
@@ -1057,6 +1094,11 @@ int phypp_main(int argc, char* argv[]) {
                 }
 
                 res.chi2 = total(sqr((tflx[id_chi2] - tmodel)/terr[id_chi2]));
+            }
+
+            if (use_aic) {
+                uint_t nparam = idne.size();
+                res.chi2 += aic_penalty*nparam;
             }
 
             bool better = res.success && res.chi2 < fres.chi2;
@@ -1521,7 +1563,7 @@ int phypp_main(int argc, char* argv[]) {
         if (is_finite(best_fit.z)) {
             print("best redshift: ", best_fit.z, " + ", zup, " - ", zlow,
                 " (chi2: ", best_fit.chi2, ", reduced: ", best_fit.chi2/ndof,
-                is_finite(zodds) ? ", odds: "+strn(zodds) : "", ")");
+                is_finite(zodds) ? ", odds: "+to_string(zodds) : "", ")");
         } else {
             print("could not fit any redshift...");
         }
@@ -1595,7 +1637,7 @@ int phypp_main(int argc, char* argv[]) {
             best_fit.ew.push_back(         best_fit.ew[il]*l.ratio[i]);
             best_fit.ew_err.push_back(     best_fit.ew_err[il]*l.ratio[i]);
 
-            line_names.push_back(line_names[il]+"-"+strn(i+1));
+            line_names.push_back(line_names[il]+"-"+to_string(i+1));
             line_lambda0.push_back(l.lambda[i]);
 
             fgroup.push_back(idg);
@@ -1661,17 +1703,17 @@ int phypp_main(int argc, char* argv[]) {
 
         ascii::write_table_hdr(filebase+"_slfit_lines.cat", 20, hdr,
             line_names, line_comp, best_fit.lambda, best_fit.lambda_err, line_lambda0, fgroup,
-            strna_sci(best_fit.flux),   strna_sci(best_fit.flux_err),
-            best_fit.free_width,  strna_sci(best_fit.width),  strna_sci(best_fit.width_err),
-            best_fit.free_offset, strna_sci(best_fit.offset), strna_sci(best_fit.offset_err),
-            strna_sci(line_comp_offset), strna_sci(line_comp_offset_err),
-            strna_sci(best_fit.cont),   strna_sci(best_fit.cont_err),
-            strna_sci(best_fit.ew),     strna_sci(best_fit.ew_err)
+            format::scientific(best_fit.flux),   format::scientific(best_fit.flux_err),
+            best_fit.free_width,  format::scientific(best_fit.width),  format::scientific(best_fit.width_err),
+            best_fit.free_offset, format::scientific(best_fit.offset), format::scientific(best_fit.offset_err),
+            format::scientific(line_comp_offset), format::scientific(line_comp_offset_err),
+            format::scientific(best_fit.cont),   format::scientific(best_fit.cont_err),
+            format::scientific(best_fit.ew),     format::scientific(best_fit.ew_err)
         );
 
         hdr = {"redshift", "P(z)", "red.chi2"};
         ascii::write_table_hdr(filebase+"_slfit_pz.cat", 18, hdr,
-            z_grid, strna_sci(pz), strna_sci(best_fit.chi2_grid)
+            z_grid, format::scientific(pz), format::scientific(best_fit.chi2_grid)
         );
     }
 
