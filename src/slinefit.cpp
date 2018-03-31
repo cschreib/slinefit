@@ -985,8 +985,8 @@ int phypp_main(int argc, char* argv[]) {
 
             if (!use_global_chi2) {
                 // Compute local chi2 (only counting pixels around the lines, not the continuum)
-                vec1d tmodel = model(lam_t{laml[id_chi2], lamu[id_chi2]}, res.params);
-                res.chi2 = total(sqr((tflx[id_chi2] - tmodel)/terr[id_chi2]));
+                vec1d tmodel = model(lt, res.params);
+                res.chi2 = total(sqr((tflx[id_chi2] - tmodel[id_chi2])/terr[id_chi2]));
             }
 
             if (use_aic) {
