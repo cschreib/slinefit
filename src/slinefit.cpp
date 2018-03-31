@@ -1842,11 +1842,10 @@ void print_help(const std::map<std::string,line_t>& db) {
     bullet("delta_z=...", "Must be a number. Defines the size of a step in the grid of "
         "redshifts, as the fraction of the size of a wavelength element of the spectrum. "
         "In other words, given the spectral resolution R of your spectrum, the redshift "
-        "step will be equal to delta_z/R. Default is 0.2, which corresponds to 0.00005 "
-        "at R=3800 (H+K) and 0.00003 at R=7100 (K). There is no much need to user smaller "
-        "steps since this is already hitting the limits of the spectral resolution, "
-        "however you may wish to increase the size of the step if you need more "
-        "performance.");
+        "step will be equal to delta_z/R. Default is 0.2, which corresponds to 0.00007 "
+        "at R=3000. There is no much need to user smaller steps since this is already "
+        "hitting the limits of the spectral resolution, however you may wish to increase "
+        "the size of the step if you need more performance.");
     bullet("oddz_dz=...", "Must be a number. A parameter used to measure the reliability "
         "of the derived redshift is the 'odds' parameter (as defined in EAzY), which is "
         "the probability that the true redshift lies within the best-fit redshift plus "
@@ -1861,8 +1860,8 @@ void print_help(const std::map<std::string,line_t>& db) {
     bullet("delta_width=...", "Must be a number. Defines the size of a step in the grid of "
         "line widths, as the fraction of the size of a wavelength element of the spectrum. "
         "In other words, given the spectral resolution R of your spectrum, the width step "
-        "will be equal to c*delta_width/R. Default is 0.2, which at corresponds to 15 km/s "
-        "at R=3800 (H+K) and 8 km/s at R=7100 (K).");
+        "will be equal to c*delta_width/R. Default is 0.2, which corresponds to 20 km/s at "
+        "R=3000.");
     bullet("same_width", "Set this flag if you want to force all lines to have the same "
         "width, rather than fit them independently. This can help solving "
         "fit instability issues if some lines are very low S/N and the fitted line widths "
@@ -1887,11 +1886,24 @@ void print_help(const std::map<std::string,line_t>& db) {
     bullet("delta_offset=...", "Must be a number. Defines the size of a step in the grid of "
         "line offsets, as the fraction of the size of a wavelength element of the spectrum. "
         "In other words, given the spectral resolution R of your spectrum, the offset step "
-        "will be equal to c*delta_offset/R. Default is 0.2, which at corresponds to 15 km/s "
-        "at R=3800 (H+K) and 8 km/s at R=7100 (K).");
+        "will be equal to c*delta_offset/R. Default is 0.2, which corresponds to 20 km/s at "
+        "R=3000.");
     bullet("offset_snr_min=...", "Must be a positive number. It defines the minimum SNR "
         "a line should have to be allowed to shift its centroid owing to velocity offsets "
         "(if 'allow_offsets' is set). Default is SNR=5.");
+    bullet("components=...", "Must be a positive number. It defines the number of velocity "
+        "components for each line. Default is one component. Each component can have its "
+        "own velocity width (unless 'same_width' is set) and velocity offset. See below.");
+    bullet("compocomp_offset_min=...", "Must be a positive number. It defines the minimum "
+        "velocity offset (in km/s) between two components of the same line. Default is zero.");
+    bullet("compocomp_offset_max=...", "Must be a positive number. It defines the maximum "
+        "velocity offset (in km/s) between two components of the same line. Default is 1000 "
+        "km/s.");
+    bullet("delta_comp_offset=...", "Must be a number. Defines the size of a step in the "
+        "grid of component velocity offsets, as the fraction of the size of a wavelength "
+        "element of the spectrum. In other words, given the spectral resolution R of your "
+        "spectrum, the offset step will be equal to c*delta_comp_offset/R. Default is 0.2, "
+        "which corresponds to 20 km/s at R=3000.");
     bullet("forbid_absorption", "Set this flag to forbid the fit from using absorption lines. "
         "When this option is enabled, all lines are assumed to be emission lines. In cases where "
         "the linear fit would favor an absorption feature, the line is set to zero flux. The "
