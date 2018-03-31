@@ -1659,6 +1659,7 @@ int phypp_main(int argc, char* argv[]) {
     line_names = line_names[ids]; fgroup = fgroup[ids]; line_id = line_id[ids];
     line_comp_offset = line_comp_offset[ids]; line_comp_offset_err = line_comp_offset_err[ids];
     line_comp = line_comp[ids];
+    line_lambda0 = line_lambda0[ids];
 
     // Rescale fluxes and uncertainties to original units
     std::string lunit, lfunit, funit, eunit, lamname, lamname2;
