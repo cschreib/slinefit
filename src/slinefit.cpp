@@ -473,6 +473,8 @@ int phypp_main(int argc, char* argv[]) {
     bool frequency = false;
     bool first_spectrum = true;
 
+    double min_cdelt = finf;
+
     auto read_spectrum = [&](std::string filename) {
         vec1d tflx, terr;
         fits::input_image fimg(filename);
@@ -598,7 +600,7 @@ int phypp_main(int argc, char* argv[]) {
             tlamu = xaxisu;
         } else {
             // x-axis is frequency, convert that to a wavelength in microns
-            // and do not forget to reverse the data so that wavelenths are
+            // and do not forget to reverse the data so that wavelengths are
             // strictly increasing
             tlam = reverse(1e6*2.99792e8/xaxis);
             tlaml = reverse(1e6*2.99792e8/xaxisu);
@@ -607,6 +609,8 @@ int phypp_main(int argc, char* argv[]) {
             terr = reverse(terr);
         }
 
+        // Compute average CDELT
+        min_cdelt = min(min_cdelt, median(tlamu-tlaml));
 
         // Identify good regions of the spectrum
         vec1b tgoodspec = is_finite(tflx) && is_finite(terr) && terr > 0;
@@ -696,13 +700,18 @@ int phypp_main(int argc, char* argv[]) {
 
     uint_t orig_nlam = lam.size();
 
-    // Select a wavelength domain centered on the line(s)
+    // Select a wavelength domain centered on the line(s) and sort by wavelength
     const vec1u idl = [&]() {
+        vec1u id;
         if (full_range) {
-            return where(goodspec);
+            id = where(goodspec);
         } else {
-            return where(goodspec && lam > lambda_min*(1.0+z0-2*dz) && lam < lambda_max*(1.0+z0+2*dz));
+            id = where(goodspec && lam > lambda_min*(1.0+z0-2*dz) && lam < lambda_max*(1.0+z0+2*dz));
         }
+
+        id = id[sort(lam[id])];
+
+        return id;
     }();
 
     if (idl.empty()) {
@@ -725,14 +734,15 @@ int phypp_main(int argc, char* argv[]) {
     lamu = lamu[idl];
     goodspec_flag = goodspec_flag[idl];
 
+    // phypp_check(is_sorted(lam), "bug, please report: wavelength array is not sorted");
+
     // Define redshift grid so as to have the requested number of samples per wavelength element
-    double cdelt = abs(lam[1]-lam[0]);
-    double tdz = delta_z*cdelt/mean(lam);
+    double tdz = delta_z*min_cdelt/mean(lam);
     uint_t nz = 2*ceil(dz/tdz)+1;
     vec1d z_grid = rgen(z0-dz, z0+dz, nz);
 
     // Define width grid so as to have the requested number of samples per wavelength element
-    double dwidth = 2.99792e5*delta_width*cdelt/mean(lam);
+    double dwidth = 2.99792e5*delta_width*min_cdelt/mean(lam);
     uint_t nwidth = ceil((width_max - width_min)/dwidth);
     vec1d width_grid = rgen(width_min, width_max, nwidth);
     if (lines.empty()) {
@@ -741,12 +751,12 @@ int phypp_main(int argc, char* argv[]) {
     }
 
     // Define line offset grid so as to have the requested number of samples per wavelength element
-    double doffset = 2.99792e5*delta_offset*cdelt/mean(lam);
+    double doffset = 2.99792e5*delta_offset*min_cdelt/mean(lam);
     uint_t noffset = 2*ceil(offset_max/doffset)+1;
     vec1d offset_grid = rgen(-offset_max, offset_max, noffset);
 
     // Define component offset grid so as to have the requested number of samples per wavelength element
-    double dcoffset = 2.99792e5*delta_comp_offset*cdelt/mean(lam);
+    double dcoffset = 2.99792e5*delta_comp_offset*min_cdelt/mean(lam);
     uint_t ncoffset = ceil((comp_offset_max - comp_offset_min)/dcoffset);
     vec1d comp_offset_grid = rgen(comp_offset_min, comp_offset_max, ncoffset);
 
@@ -806,7 +816,7 @@ int phypp_main(int argc, char* argv[]) {
 
     // Perform a redshift search
     if (verbose) {
-        note("average resolution of spectrum: R=", mean(lam)/cdelt);
+        note("best resolution of spectrum: R=", mean(lam)/min_cdelt);
         note(use_mpfit ? "non-linear" : "linear", " redshift search");
         note(" - ", nz, " redshifts, step = ", z_grid[1] - z_grid[0]);
 
