@@ -1822,19 +1822,18 @@ void print_help(const std::map<std::string,line_t>& db) {
     print("usage: slinefit <spectrum.fits> z0=... dz=... lines=... [options]");
     print("");
     print("Main parameters:");
-    paragraph("'spectrum.fits' must be a valid 1D spectrum file (ESO convention), i.e., a FITS "
-        "file containing 3 extensions: the first must be empty, the "
-        "second contains the flux, while the third contains the uncertainty. Using this "
-        "spectrum, the tool searches for lines around a \"first-guess\" redshift of 'z0', "
-        "within 'z0-dz' and 'z0+dz' (by default, dz=0.3). It will try to identify spectral "
+    paragraph("'spectrum.fits' must be a valid 1D spectrum file, i.e., a FITS file containing "
+        "at least two extensions: one for the flux, the other for the uncertainty. The spectral "
+        "axis (wavelength or frequency) is determined from the WCS information in the header. "
+        "Using this spectrum, the tool searches for lines around a \"first-guess\" redshift of "
+        "'z0', within 'z0-dz' and 'z0+dz' (by default, dz=0.3). It will try to identify spectral "
         "features with the emission lines you provide in the 'lines' list (see below for a "
         "list of available lines and their code names). You can specify as many lines as "
-        "you wish, and the order is irrelevant. For example: 'lines=\"[hbeta,o3]\"'. The "
-        "program will adjust the redshift, as well as both the line fluxes and widths to "
-        "best match the observed spectrum. It will output a column-oriented FITS table "
-        "containing the best-fit redshift (and its probability distribution), the chi2, "
-        "and the fluxes, widths and uncertainties for each lines. This catalog is saved "
-        "into the '*_slfit.fits' file. You can open it within IDL with 'mrdfits(\"...\", 1)'.");
+        "you wish, and the order is irrelevant. For example: 'lines=\"[em_hbeta,em_o3_5007]\"'. "
+        "The program will adjust the redshift, as well as both the line fluxes and widths to "
+        "best match the observed spectrum. It will output a set of files (FITS and/or ASCII "
+        "tables) containing the best-fit redshift, its probability distribution, the chi2, and "
+        "the fluxes, widths, uncertainties and velocity offset for each lines.");
     print("Available lines:");
     print_available_lines(db);
     paragraph("\nNote: you can add your own lines either by modifying the source code of the "
