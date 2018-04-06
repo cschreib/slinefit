@@ -1834,6 +1834,12 @@ void print_help(const std::map<std::string,line_t>& db) {
         "best match the observed spectrum. It will output a set of files (FITS and/or ASCII "
         "tables) containing the best-fit redshift, its probability distribution, the chi2, and "
         "the fluxes, widths, uncertainties and velocity offset for each lines.");
+    paragraph("The code can also fit multiple spectra at once, for example if you have multiple "
+        "spectra for a single source coming from different instruments. Simply list the paths "
+        "of these spectra inside a plain text file, one spectrum per line, and give this text "
+        "file as input to the code instead of a FITS file (as described above). The spectra can "
+        "have different coverage, different wavelength/frequency units, and different resolutions. "
+        "Only the flux unit must be the same.");
     print("Available lines:");
     print_available_lines(db);
     paragraph("\nNote: you can add your own lines either by modifying the source code of the "
