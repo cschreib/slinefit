@@ -496,10 +496,10 @@ int phypp_main(int argc, char* argv[]) {
         bool tlog_axis = false;
         bool tab_axis = false;
         if (fimg.read_keyword("CTYPE1", ctype)) {
-            if (start_with(ctype, "LOG")) {
+            if (begins_with(ctype, "LOG")) {
                 // Logarithmic axis
                 tlog_axis = true;
-            } else if (start_with(ctype, "TAB")) {
+            } else if (begins_with(ctype, "TAB")) {
                 // Tabulated axis, read from other extensions
                 uint_t lowext = npos, upext = npos;
                 std::string axis = erase_begin(ctype, "TAB");
@@ -540,7 +540,7 @@ int phypp_main(int argc, char* argv[]) {
                 warning("could not find unit of wavelength axis");
                 note("assuming wavelengths are given in microns");
             } else {
-                cunit = tolower(cunit);
+                cunit = to_lower(cunit);
                 double conv = 1.0;
                 if (cunit == "angstrom") {
                     conv = 1e-4;
@@ -670,7 +670,7 @@ int phypp_main(int argc, char* argv[]) {
 
     std::string infile = argv[1];
 
-    if (end_with(infile, ".fits")) {
+    if (ends_with(infile, ".fits")) {
         if (!read_spectrum(infile)) {
             return 1;
         }
@@ -1816,7 +1816,7 @@ int phypp_main(int argc, char* argv[]) {
 }
 
 void print_help(const std::map<std::string,line_t>& db) {
-    using namespace format;
+    using namespace terminal_format;
 
     print("slinefit v2.0");
     print("usage: slinefit <spectrum.fits> z0=... dz=... lines=... [options]");
