@@ -799,7 +799,7 @@ int phypp_main(int argc, char* argv[]) {
 
     vec<1,template_t> templates;
     if (fit_continuum_template) {
-        vec1s tpls = file::list_files(template_dir+"*.dat");
+        vec1s tpls = file::list_files(template_dir, "*.dat");
         for (uint_t it : range(tpls)) {
             std::string fname = template_dir+tpls[it];
             template_t tp;
