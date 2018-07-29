@@ -803,7 +803,7 @@ int phypp_main(int argc, char* argv[]) {
         for (uint_t it : range(tpls)) {
             std::string fname = template_dir+tpls[it];
             template_t tp;
-            ascii::read_table(fname, ascii::find_skip(fname), tp.lam, tp.sed);
+            ascii::read_table(fname, tp.lam, tp.sed);
             tp.lam *= 1e-4;
             templates.push_back(tp);
         }
@@ -1707,23 +1707,25 @@ int phypp_main(int argc, char* argv[]) {
     if (verbose) note("write to disk...");
 
     if (ascii) {
-        vec1s hdr = {"line", "component", lamname2+" "+lunit, "error", "rest", "fit group",
+        ascii::output_format opts;
+        opts.header = {"line", "component", lamname2+" "+lunit, "error", "rest", "fit group",
             "flux "+lfunit, "error", "free width?", "width [km/s]",
             "error", "free offset?", "offset [km/s]", "error",
             "comp offset [km/s]", "error", "cont "+funit, "error", "EW "+eunit, "error"};
 
-        ascii::write_table_hdr(filebase+"_slfit_lines.cat", 20, hdr,
+        ascii::write_table(filebase+"_slfit_lines.cat", opts,
             line_names, line_comp, best_fit.lambda, best_fit.lambda_err, line_lambda0, fgroup,
-            format::scientific(best_fit.flux),   format::scientific(best_fit.flux_err),
+            format::scientific(best_fit.flux),    format::scientific(best_fit.flux_err),
             best_fit.free_width,  format::scientific(best_fit.width),  format::scientific(best_fit.width_err),
             best_fit.free_offset, format::scientific(best_fit.offset), format::scientific(best_fit.offset_err),
             format::scientific(line_comp_offset), format::scientific(line_comp_offset_err),
-            format::scientific(best_fit.cont),   format::scientific(best_fit.cont_err),
-            format::scientific(best_fit.ew),     format::scientific(best_fit.ew_err)
+            format::scientific(best_fit.cont),    format::scientific(best_fit.cont_err),
+            format::scientific(best_fit.ew),      format::scientific(best_fit.ew_err)
         );
 
-        hdr = {"redshift", "P(z)", "red.chi2"};
-        ascii::write_table_hdr(filebase+"_slfit_pz.cat", 18, hdr,
+        opts.header = {"redshift", "P(z)", "red.chi2"};
+
+        ascii::write_table(filebase+"_slfit_pz.cat", opts,
             z_grid, format::scientific(pz), format::scientific(best_fit.chi2_grid)
         );
     }
