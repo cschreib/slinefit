@@ -21,6 +21,7 @@ ExternalProject_Add(cfitsio
     SOURCE_DIR ${PROJECT_SOURCE_DIR}/external/cfitsio
     DOWNLOAD_DIR ${PROJECT_SOURCE_DIR}/external/cfitsio
     GIT_REPOSITORY https://github.com/HEASARC/cfitsio.git
+    GIT_TAG ff6bdb0c2f891ae6709f6bb2378e24e005b7c92b
     CMAKE_ARGS
         -DBUILD_SHARED_LIBS=OFF
         -DUSE_PTHREADS=ON
@@ -35,6 +36,7 @@ ExternalProject_Add(phy++
     SOURCE_DIR ${PROJECT_SOURCE_DIR}/external/phypp
     DOWNLOAD_DIR ${PROJECT_SOURCE_DIR}/external/phypp
     GIT_REPOSITORY https://github.com/cschreib/phypp.git
+    GIT_TAG a54618a8dd3e5964452a200430b780ed334d29d9
     CMAKE_ARGS
         -DNO_REFLECTION=ON
         -DNO_FFTW=ON
