@@ -1047,8 +1047,8 @@ int phypp_main(int argc, char* argv[]) {
 
             if (use_aic) {
                 // TODO: compute this properly...
-                uint_t nparam = p.size();
-                res.chi2 += aic_penalty*nparam;
+                uint_t nmodel_effective = p.size();
+                res.chi2 += aic_penalty*nmodel_effective;
             }
 
             bool better = res.success && res.chi2 < fres.chi2;
@@ -1246,15 +1246,15 @@ int phypp_main(int argc, char* argv[]) {
             // Evaluate best model
             vec1d model(lam.dims), model_continuum(lam.dims);
             for (uint_t im : range(nmodel)) {
-                double p = res.params[im];
+                double amp = res.params[im];
                 bool iscont = !isline[im];
                 uint_t ll0 = model_start[im];
                 uint_t ll1 = model_end[im];
 
                 for (uint_t ll : range(ll0, ll1)) {
-                    model.safe[ll] += p*m.safe(im,ll);
+                    model.safe[ll] += amp*m.safe(im,ll);
                     if (iscont) {
-                        model_continuum.safe[ll] += p*m.safe(im,ll);
+                        model_continuum.safe[ll] += amp*m.safe(im,ll);
                     }
                 }
             }
@@ -1308,12 +1308,12 @@ int phypp_main(int argc, char* argv[]) {
                     fres.models = vec2d(lines.size(), fres.model.size());
                     for (uint_t im : range(lines)) {
                         uint_t imc = id_mline[im];
-                        double p = res.params[imc];
+                        double amp = res.params[imc];
                         uint_t ll0 = model_start[imc];
                         uint_t ll1 = model_end[imc];
 
                         for (uint_t ll : range(ll0, ll1)) {
-                            fres.models.safe(im,ll) = p*m.safe(imc,ll);
+                            fres.models.safe(im,ll) = amp*m.safe(imc,ll);
                         }
                     }
                 }
