@@ -1159,7 +1159,7 @@ int phypp_main(int argc, char* argv[]) {
             #endif
 
             // Now multiply models together to form the alpha matrix
-            vec2d alpha(nmodel, nmodel);
+            matrix::mat2d alpha(nmodel, nmodel);
             vec1d beta(nmodel);
             vec1b bad_model(nmodel);
             uint_t nmodel_effective = nmodel;
@@ -1222,7 +1222,7 @@ int phypp_main(int argc, char* argv[]) {
             #endif
 
             linfit_result res;
-            if (!matrix::inplace_invert_symmetric(alpha)) {
+            if (!inplace_invert_symmetric(alpha)) {
                 return false;
             }
 
@@ -1230,9 +1230,9 @@ int phypp_main(int argc, char* argv[]) {
             n = now(); print(n - o); o = n;
             #endif
 
-            matrix::symmetrize(alpha);
-            res.params = matrix::product(alpha, beta);
-            res.errors = sqrt(matrix::diagonal(alpha));
+            inplace_symmetrize(alpha);
+            res.params = alpha*beta;
+            res.errors = sqrt(diagonal(alpha));
 
             #ifdef TIMEIT
             n = now(); print(n - o); o = n;
