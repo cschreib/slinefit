@@ -295,6 +295,7 @@ int phypp_main(int argc, char* argv[]) {
     double aic_penalty = 2.0;
     double chi2_cor = 1.0;
     double xmin = dnan, xmax = dnan;
+    double lyalpha_width_max = dnan;
     vec1s tlines;
 
     read_args(argc-1, argv+1, arg_list(z0, dz, name(tlines, "lines"), width_min, width_max,
@@ -304,7 +305,7 @@ int phypp_main(int argc, char* argv[]) {
         allow_offsets, offset_max, offset_snr_min, delta_offset, residual_rescale,
         mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"), full_range,
         forbid_absorption, components, comp_offset_min, comp_offset_max, delta_comp_offset,
-        save_line_models, chi2_cor, use_aic, aic_penalty, xmin, xmax
+        save_line_models, chi2_cor, use_aic, aic_penalty, xmin, xmax, lyalpha_width_max
     ));
 
     // Check validity of input and create output directories if needed
@@ -395,6 +396,12 @@ int phypp_main(int argc, char* argv[]) {
         warning("offsets between components is positive by definition, assuming 0 for minimum "
             "(instead of ", comp_offset_min, ")");
         comp_offset_min = 0;
+    }
+
+    if (same_width && is_finite(lyalpha_width_max) && lyalpha_width_max != width_max) {
+        error("when 'same_width' is set, Ly-alpha must have the same width as other lines");
+        error("therefore 'lyalpha_width_max' cannot be used");
+        bad = true;
     }
 
     if (bad) return 1;
@@ -701,12 +708,19 @@ int phypp_main(int argc, char* argv[]) {
     uint_t orig_nlam = lam.size();
 
     // Select a wavelength domain centered on the line(s) and sort by wavelength
+    double wmax = width_max;
+    if (is_finite(lyalpha_width_max)) {
+        wmax = max(wmax, lyalpha_width_max);
+    }
+
+    double lcmin = lambda_min*(1.0+z0-2*dz-5*wmax/2.99792e5);
+    double lcmax = lambda_max*(1.0+z0+2*dz+5*wmax/2.99792e5);
     const vec1u idl = [&]() {
         vec1u id;
         if (full_range) {
             id = where(goodspec);
         } else {
-            id = where(goodspec && lam > lambda_min*(1.0+z0-2*dz) && lam < lambda_max*(1.0+z0+2*dz));
+            id = where(goodspec && lam > lcmin && lam < lcmax);
         }
 
         id = id[sort(lam[id])];
@@ -720,8 +734,7 @@ int phypp_main(int argc, char* argv[]) {
         } else {
             error("none of the chosen lines are covered by the provided spectrum at z=", z0, " +/- ", dz);
             vec1u tidl = where(goodspec);
-            note("your redshift search for these lines requires a range within ",
-                lambda_min*(1.0+z0-2*dz), " to ", lambda_max*(1.0+z0+2*dz));
+            note("your redshift search for these lines requires a range within ", lcmin, " to ", lcmax);
             note("but the spectrum only covers ", min(lam[tidl]), " to ", max(lam[tidl]));
         }
         return 1;
@@ -750,6 +763,14 @@ int phypp_main(int argc, char* argv[]) {
         nwidth = 1;
     }
 
+    // Define width grid for Ly-alpha (can be treated as special case)
+    vec1d lyalpha_width_grid = width_grid;
+    uint_t nlwidth = nwidth;
+    if (is_finite(lyalpha_width_max)) {
+        nlwidth = ceil((lyalpha_width_max - width_min)/dwidth);
+        lyalpha_width_grid = rgen(width_min, lyalpha_width_max, nlwidth);
+    }
+
     // Define line offset grid so as to have the requested number of samples per wavelength element
     double doffset = 2.99792e5*delta_offset*min_cdelt/mean(lam);
     uint_t noffset = 2*ceil(offset_max/doffset)+1;
@@ -766,7 +787,12 @@ int phypp_main(int argc, char* argv[]) {
     for (uint_t il : range(lines)) {
         vec1b tcov = replicate(false, lam.size());
         for (uint_t isl : range(lines[il].lambda)) {
-            tcov = tcov || abs(lam/(lines[il].lambda[isl]*(1.0 + z0)) - 1.0) < 2*width_max/2.99792e5 + dz;
+            double wm = width_max;
+            if (is_finite(lyalpha_width_max) && lines[il].name == "em_lyalpha") {
+                wm = lyalpha_width_max;
+            }
+
+            tcov = tcov || abs(lam/(lines[il].lambda[isl]*(1.0 + z0)) - 1.0) < 2*wm/2.99792e5 + dz;
         }
 
         scov = scov || tcov;
@@ -825,6 +851,14 @@ int phypp_main(int argc, char* argv[]) {
                 note(" - ", nwidth, " line widths, step = ", width_grid[1] - width_grid[0], " km/s");
             } else {
                 note(" - one line widths: ", width_grid[0], " km/s");
+            }
+            if (is_finite(lyalpha_width_max)) {
+                if (lyalpha_width_grid.size() > 1) {
+                    note(" - ", nlwidth, " line widths for Ly-alpha, step = ",
+                        lyalpha_width_grid[1] - lyalpha_width_grid[0], " km/s");
+                } else {
+                    note(" - one line widths for Ly-alpha: ", lyalpha_width_grid[0], " km/s");
+                }
             }
         }
         if (allow_offsets) {
@@ -1215,8 +1249,11 @@ int phypp_main(int argc, char* argv[]) {
                         p[id_width] = 0.5*(width_max - width_min);
 
                         for (uint_t il : range(lines)) {
-                            for (uint_t iw : range(width_grid)) {
-                                p[id_width[il]] = width_grid[iw];
+                            auto& grid = (lines[il].name == "em_lyalpha" ?
+                                lyalpha_width_grid : width_grid);
+
+                            for (uint_t iw : range(grid)) {
+                                p[id_width[il]] = grid[iw];
                                 try_lfit(z_grid[iz], fres.chi2_grid[iz]);
                             }
 
@@ -1275,7 +1312,9 @@ int phypp_main(int argc, char* argv[]) {
                 // Vary the offset of each line
                 for (uint_t il : range(lines)) {
                     // Only fit offsets for high SNR lines or for Lyalpha
-                    if (abs((fres.flux/fres.flux_err)[il]) < offset_snr_min && lines[il].name != "em_lyalpha") continue;
+                    if (abs((fres.flux/fres.flux_err)[il]) < offset_snr_min &&
+                        lines[il].name != "em_lyalpha") continue;
+
                     fres.free_offset[il] = true;
 
                     for (uint_t io : range(offset_grid)) {
