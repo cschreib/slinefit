@@ -973,8 +973,13 @@ int phypp_main(int argc, char* argv[]) {
         // Cached computations
         // -------------------
         // Regions of the spectrum defined as continuum around lines
-        vec<1,vec1u> line_idc(lines.size());
+        vec1u line_cont_start(lines.size());
+        vec1u line_cont_end(lines.size());
+
         vec<1,vec1d> tpl_flux(templates.size());
+
+        vec1b isline = replicate(false, nmodel);
+        isline[id_mline] = true;
 
         // Function to perform a non-linear fit (if varying the line widths)
         // -----------------------------------------------------------------
@@ -990,7 +995,10 @@ int phypp_main(int argc, char* argv[]) {
                     if (only_line != npos && only_line != il) continue;
 
                     if (local_continuum && only_line == npos) {
-                        m[line_idc[il]] += tp[id_cont[il]];
+                        double ct = tp[id_cont[il]];
+                        for (uint_t ll : range(line_cont_start[il], line_cont_end[il])) {
+                            m.safe[ll] += ct;
+                        }
                     }
 
                     for (uint_t isl : range(lines[il].lambda)) {
@@ -1002,7 +1010,7 @@ int phypp_main(int argc, char* argv[]) {
                         auto bl = bounds(l.ll, l0-5*lw, l0+5*lw);
                         if (bl[0] == npos) bl[0] = 0;
                         if (bl[1] == npos) bl[1] = l.ll.size();
-                        for (uint_t ll = bl[0]; ll < bl[1]; ++ll) {
+                        for (uint_t ll : range(bl[0], bl[1])) {
                             m.safe[ll] += integrate_gauss(
                                 l.ll.safe[ll], l.lu.safe[ll], l0, lw, amp
                             );
@@ -1012,7 +1020,11 @@ int phypp_main(int argc, char* argv[]) {
 
                 if (fit_continuum_template && only_line == npos) {
                     for (uint_t it : range(templates)) {
-                        m += tp[id_cont[it]]*tpl_flux[it];
+                        double norm = tp[id_cont[it]];
+                        auto& tpl = tpl_flux[it];
+                        for (uint_t ll : range(lam)) {
+                            m.safe[ll] += norm*tpl.safe[ll];
+                        }
                     }
                 }
 
@@ -1036,7 +1048,6 @@ int phypp_main(int argc, char* argv[]) {
             if (use_aic) {
                 // TODO: compute this properly...
                 uint_t nparam = p.size();
-
                 res.chi2 += aic_penalty*nparam;
             }
 
@@ -1074,91 +1085,213 @@ int phypp_main(int argc, char* argv[]) {
         };
         // -----------------------------------------------------------------
 
+        // Reusable arrays for linear fit
+        vec2d m;
+
+        if (!use_mpfit) {
+            m.resize(nmodel, lam.dims);
+        }
+
         // Function to perform a linear fit (fixed line widths)
         // -----------------------------------------------------------------
         auto try_lfit = [&](double tz, double& gchi2) {
-            vec2d m(nmodel, lam.size());
+            #define TIMEIT
+
+            #ifdef TIMEIT
+            double oo, o, n;
+            oo = o = now();
+            #endif
+
+            // First evaluate models
+            vec1u model_start(nmodel), model_end(nmodel);
             for (uint_t il : range(lines)) {
                 if (local_continuum) {
-                    m(id_mcont[il],line_idc[il]) = 1.0;
+                    uint_t icl = id_mcont[il];
+                    model_start[icl] = line_cont_start[il];
+                    model_end[icl] = line_cont_end[il];
+
+                    for (uint_t ll : range(lam)) {
+                        if (ll >= line_cont_start[il] && ll < line_cont_end[il]) {
+                            m.safe(icl,ll) = 1.0;
+                        } else {
+                            m.safe(icl,ll) = 0.0;
+                        }
+                    }
+                }
+
+                double dv = p[id_offset[il]] + p[id_comp_offset[lines[il].component]];
+                double lw_max = (p[id_width[il]]/2.99792e5)*max(lines[il].lambda)*(1.0+tz);
+                double l0_max = max(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
+                double l0_min = min(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
+
+                auto bl = bounds(lam, l0_min-5*lw_max, l0_max+5*lw_max);
+                if (bl[0] == npos) bl[0] = 0;
+                if (bl[1] == npos) bl[1] = lam.size();
+
+                uint_t iml = id_mline[il];
+                model_start[iml] = bl[0];
+                model_end[iml] = bl[1];
+
+                for (uint_t ll : range(bl[0], bl[1])) {
+                    m.safe(iml,ll) = 0.0;
                 }
 
                 for (uint_t isl : range(lines[il].lambda)) {
                     double lw = (p[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
-                    double dv = p[id_offset[il]] + p[id_comp_offset[lines[il].component]];
                     double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
                     double amp = 1e-4*lines[il].ratio[isl];
 
-                    auto bl = bounds(lam, l0-5*lw, l0+5*lw);
-                    if (bl[0] == npos) bl[0] = 0;
-                    if (bl[1] == npos) bl[1] = lam.size();
-                    for (uint_t ll = bl[0]; ll < bl[1]; ++ll) {
-                        m.safe(id_mline[il],ll) += integrate_gauss(
-                            laml.safe[ll], lamu.safe[ll], l0, lw, amp
-                        );
+                    for (uint_t ll : range(bl[0], bl[1])) {
+                        m.safe(iml,ll) +=
+                            integrate_gauss(laml.safe[ll], lamu.safe[ll], l0, lw, amp);
                     }
                 }
             }
 
-            if (fit_continuum_template) {
-                for (uint_t it : range(templates)) {
-                    m(id_mcont[it],_) = tpl_flux[it];
+            for (uint_t it : range(templates)) {
+                uint_t icl = id_mcont[it];
+                model_start[icl] = 0;
+                model_end[icl] = lam.size();
+            }
+
+            #ifdef TIMEIT
+            n = now(); print(n - o); o = n;
+            #endif
+
+            // Now multiply models together to form the alpha matrix
+            vec2d alpha(nmodel, nmodel);
+            vec1d beta(nmodel);
+            vec1b bad_model(nmodel);
+            uint_t nmodel_effective = nmodel;
+            for (uint_t im0 : range(nmodel)) {
+                uint_t ll00 = model_start[im0];
+                uint_t ll01 = model_end[im0];
+
+                // model x self; model x obs
+                for (uint_t ll : range(ll00, ll01)) {
+                    double e2 = sqr(terr.safe[ll]);
+                    double mm = m.safe(im0,ll);
+
+                    // model x self
+                    alpha.safe(im0,im0) += sqr(mm)/e2;
+
+                    // model x obs
+                    beta.safe[im0] += mm*tflx.safe[ll]/e2;
+                }
+
+                // Clean up zero models
+                if (alpha.safe(im0,im0) == 0.0) {
+                    bad_model.safe[im0] = true;
+                    --nmodel_effective;
+
+                    for (uint_t im1 : range(nmodel)) {
+                        alpha.safe(im0,im1) = 0.0;
+                    }
+                    alpha.safe(im0,im0) = 1.0;
+                    beta.safe[im0] = 0.0;
+                } else {
+                    // model x model
+                    for (uint_t im1 : range(nmodel)) {
+                        if (im1 > im0) {
+                            uint_t ll10 = model_start[im1];
+                            uint_t ll11 = model_end[im1];
+
+                            if (ll10 >= ll01 || ll11 <= ll00) {
+                                // Models do not overlap, skip
+                                continue;
+                            }
+
+                            uint_t l0 = std::max(ll00, ll10);
+                            uint_t l1 = std::min(ll01, ll11);
+
+                            for (uint_t ll : range(l0, l1)) {
+                                double e2 = sqr(terr.safe[ll]);
+                                double mm0 = m.safe(im0,ll);
+                                double mm1 = m.safe(im1,ll);
+                                alpha.safe(im0,im1) += mm0*mm1/e2;
+                            }
+                        } else {
+                            alpha.safe(im0,im1) = alpha.safe(im1,im0);
+                        }
+                    }
                 }
             }
 
-            // Exclude models that are zero from the fit
-            vec1u idne = where(partial_total(1, abs(m)) > 0.0);
-            m = m(idne,_);
+            #ifdef TIMEIT
+            n = now(); print(n - o); o = n;
+            #endif
 
-            linfit_result res = linfit_pack(tflx, terr, m);
+            linfit_result res;
+            if (!matrix::inplace_invert_symmetric(alpha)) {
+                return false;
+            }
+
+            #ifdef TIMEIT
+            n = now(); print(n - o); o = n;
+            #endif
+
+            matrix::symmetrize(alpha);
+            res.params = matrix::product(alpha, beta);
+            res.errors = sqrt(matrix::diagonal(alpha));
+
+            #ifdef TIMEIT
+            n = now(); print(n - o); o = n;
+            #endif
 
             // If asked, ignore lines that would be fitted in absorption
             if (forbid_absorption) {
-                vec1u id1, id2;
-                match(idne, id_amp, id1, id2);
-                res.params[id1[where(res.params[id1] < 0)]] = 0;
+                res.params[id_amp[where(res.params[id_amp] < 0)]] = 0;
+            }
 
-                // Recompute the chi2 if using the global chi2
-                // Else it will be recomputed just below
-                if (use_global_chi2) {
-                    vec1d tmodel(tflx.size());
-                    for (uint_t il : range(idne)) {
-                        tmodel += res.params[il]*m(il,_);
+            // Evaluate best model
+            vec1d model(lam.dims), model_continuum(lam.dims);
+            for (uint_t im : range(nmodel)) {
+                double p = res.params[im];
+                bool iscont = !isline[im];
+                uint_t ll0 = model_start[im];
+                uint_t ll1 = model_end[im];
+
+                for (uint_t ll : range(ll0, ll1)) {
+                    model.safe[ll] += p*m.safe(im,ll);
+                    if (iscont) {
+                        model_continuum.safe[ll] += p*m.safe(im,ll);
                     }
-
-                    res.chi2 = total(sqr((tflx - tmodel)/terr));
                 }
             }
 
-            if (!use_global_chi2) {
-                // Compute local chi2 (only counting pixels around the lines, not the continuum)
-                vec1d tmodel(id_chi2.size());
-                for (uint_t il : range(idne)) {
-                    tmodel += res.params[il]*m(il,id_chi2);
+            // Compute chi2
+            res.chi2 = 0.0;
+            if (use_global_chi2) {
+                for (uint_t ll : range(lam)) {
+                    res.chi2 += sqr((model.safe[ll]-tflx.safe[ll])/terr.safe[ll]);
                 }
-
-                res.chi2 = total(sqr((tflx[id_chi2] - tmodel)/terr[id_chi2]));
+            } else {
+                for (uint_t ll : id_chi2) {
+                    res.chi2 += sqr((model.safe[ll]-tflx.safe[ll])/terr.safe[ll]);
+                }
             }
 
             if (use_aic) {
-                uint_t nparam = idne.size();
-                res.chi2 += aic_penalty*nparam;
+                res.chi2 += aic_penalty*nmodel_effective;
             }
 
-            bool better = res.success && res.chi2 < fres.chi2;
+            #ifdef TIMEIT
+            n = now(); print(n - o); o = n;
+            #endif
+
+            bool better = res.chi2 < fres.chi2;
             if (better) {
                 fres.chi2 = res.chi2;
                 fres.z = tz;
 
-                // Reform initial model grid
-                vec1d rflux = replicate(dnan, nmodel);
-                vec1d rerr = replicate(dnan, nmodel);
-                rflux[idne] = res.params;
-                rerr[idne] = res.errors;
+                // Eliminate bad models
+                vec1u idb = where(bad_model);
+                res.params[idb] = dnan;
+                res.errors[idb] = dnan;
 
                 // Get fluxes from the lines
-                fres.flux       = rflux[id_mline];
-                fres.flux_err   = rerr[id_mline];
+                fres.flux       = res.params[id_mline];
+                fres.flux_err   = res.errors[id_mline];
 
                 // Width and offset are given by current grid
                 fres.width      = p[id_width];
@@ -1168,27 +1301,30 @@ int phypp_main(int argc, char* argv[]) {
                 fres.comp_offset = p[id_comp_offset];
                 fres.comp_offset_err = replicate(0.0, id_comp_offset.size());
 
-                fres.model = vec1d(lam.dims);
-                fres.model_continuum = vec1d(lam.dims);
-                vec1b isline = replicate(false, nmodel);
-                isline[id_mline] = true;
-                for (uint_t il : range(idne)) {
-                    fres.model += res.params[il]*m(il,_);
-                    if (!isline[idne[il]]) {
-                        fres.model_continuum += res.params[il]*m(il,_);
-                    }
-                }
+                fres.model = model;
+                fres.model_continuum = model_continuum;
 
                 if (!fres.no_models) {
                     fres.models = vec2d(lines.size(), fres.model.size());
-                    for (uint_t il : range(idne)) {
-                        if (!isline[idne[il]]) continue;
-                        fres.models(where_first(id_mline == idne[il]),_) = res.params[il]*m(il,_);
+                    for (uint_t im : range(lines)) {
+                        uint_t imc = id_mline[im];
+                        double p = res.params[imc];
+                        uint_t ll0 = model_start[imc];
+                        uint_t ll1 = model_end[imc];
+
+                        for (uint_t ll : range(ll0, ll1)) {
+                            fres.models.safe(im,ll) = p*m.safe(imc,ll);
+                        }
                     }
                 }
             }
 
-            if (res.success && res.chi2 < gchi2) {
+            #ifdef TIMEIT
+            n = now(); print(n - o); o = n;
+            n = now(); print(". ", n - oo); o = n;
+            #endif
+
+            if (res.chi2 < gchi2) {
                 gchi2 = res.chi2;
             }
 
@@ -1201,10 +1337,13 @@ int phypp_main(int argc, char* argv[]) {
         auto make_cache = [&](double tz) {
             // Cache continuum wavelength regions for each line
             for (uint_t il : range(lines)) {
-                line_idc[il] = where(
-                    lam >= (1.0 + tz)*lines[il].continuum_lmin &&
-                    lam <= (1.0 + tz)*lines[il].continuum_lmax
+                auto b = bounds(lam,
+                    (1.0 + tz)*lines[il].continuum_lmin,
+                    (1.0 + tz)*lines[il].continuum_lmax
                 );
+
+                line_cont_start[il] = b[0];
+                line_cont_end[il] = b[1];
             }
 
             // Redshift and rebin galaxy templates to the resolution of the spectrum
@@ -1215,6 +1354,12 @@ int phypp_main(int argc, char* argv[]) {
                 vec1d tlam = tpl.lam*(1.0 + tz);
                 ttflx = interpolate(tpl.sed, tlam, lam);
                 ttflx[where(!is_finite(ttflx) || lam > max(tlam) || lam < min(tlam))] = 0.0;
+
+                if (!use_mpfit) {
+                    // Store templates in model cache now, because it won't need updating
+                    uint_t icl = id_mcont[it];
+                    m(icl,_) = ttflx;
+                }
             }
         };
         // -----------------------------------------------------------------
