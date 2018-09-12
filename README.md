@@ -17,12 +17,12 @@
 * Can use multi-threading to speed up the Monte Carlo simulations.
 * Outputs redshift, line fluxes, widths, offsets and rest-frame equivalent widths.
 * Can output results in both FITS and ASCII format.
-* Has been used to fit spectra from VIMOS, KMOS, MOSFIRE, ALMA and VLA.
+* Has been used to fit spectra from VIMOS, KMOS, X-SHOOTER, MOSFIRE, ALMA and VLA.
 
 
 # Typical usage
 
-Usually you will want to run a "first pass" to measure the redshift, which is pretty fast. For example, on my desktop computer, the code takes 7 seconds to find the redshift of a galaxy with one continuum template and five emission lines. This is using a 1D spectrum with about 1000 spectral elements (R~3000), scanning 8000 possible redshifts between z=2 and z=5 with 2 possible line widths, and without Monte Carlo simulations. This is the command that was used:
+Usually you will want to run a "first pass" to measure the redshift, which is pretty fast. For example, on my desktop computer, the code takes 7 seconds to find the redshift of a galaxy with one continuum template (typically the best-fit template obtained from a fit to the photometry with your favorite photometric redshift code) and five emission lines. This is using a 1D spectrum with about 1000 spectral elements (R~3000), scanning 8000 possible redshifts between z=2 and z=5 with 2 possible line widths, and without Monte Carlo simulations. This is the command that was used:
 ```
 slinefit spectrum.fits z0=3.5 dz=1.5 delta_z=1 width_min=60 width_max=300 delta_width=2 \
     same_width use_global_chi2 full_range fit_continuum_template verbose \
@@ -47,7 +47,7 @@ slinefit spectrum.fits z0=3.5 dz=1.5 delta_z=1 width_min=60 width_max=300 delta_
 #   present in the spectrum.
 ```
 
-Once the redshift is known, you will want to do a "second pass" where line properties are varied on a finer grid, where fainter lines are added, or where the continuum is modeled with more templates. For example, on the same computer, it takes about 2 minutes to measure the properties of 14 lines, with 6 continuum templates, 25 different redshifts (```dz=0.002```, centered on the known zspec), 9 possible line widths (with a step of 50 km/s), and 41 velocity offsets (step of 50 km/s). The most time consuming step is the Monte Carlo simulation (performing the fit itself takes about one second).
+Once the redshift is known, you will want to do a "second pass" where line properties are varied on a finer grid, where fainter lines are added, or where the continuum is modeled with more templates. For example, on the same computer, it takes about 2 minutes to measure the properties of 14 lines, with 6 continuum templates, 25 different redshifts (```dz=0.002```, centered on the known zspec), 9 possible line widths (with a step of 50 km/s), and 41 velocity offsets (step of 50 km/s). The most time-consuming step is the Monte Carlo simulation (performing the fit itself takes about one second).
 ```
 slinefit spectrum.fits z0=2.369 dz=0.002 delta_z=0.5 width_min=50 width_max=500 delta_width=0.5 \
     same_width allow_offsets offset_max=1000 delta_offset=0.5 fit_continuum_template verbose \
