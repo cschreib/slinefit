@@ -1,5 +1,7 @@
-#include <phypp.hpp>
-#include <phypp/math/mpfit.hpp>
+#include <vif.hpp>
+#include <vif/math/mpfit.hpp>
+
+using namespace vif;
 
 // Structure to define a line or line group to be fitted simultaneously
 struct line_t {
@@ -171,7 +173,7 @@ vec1b keep_gaps_and_expand(vec1b flags, uint_t mincount, uint_t padding) {
 void print_help(const std::map<std::string,line_t>& db);
 void print_available_lines(const std::map<std::string,line_t>& db);
 
-int phypp_main(int argc, char* argv[]) {
+int vif_main(int argc, char* argv[]) {
     // Prepare the line database
     std::map<std::string,line_t> linedb;
     auto add_line = [&](line_t l) {
@@ -434,8 +436,8 @@ int phypp_main(int argc, char* argv[]) {
                 nl.lambda = nums;
                 nl.ratio = replicate(1.0, nums.size());
             } else {
-                nl.lambda = nums[uindgen(nums.size()/2)];
-                nl.ratio  = nums[uindgen(nums.size()/2) + nums.size()/2];
+                nl.lambda = nums[indgen(nums.size()/2)];
+                nl.ratio  = nums[indgen(nums.size()/2) + nums.size()/2];
             }
 
             lines.push_back(nl);
@@ -534,7 +536,7 @@ int phypp_main(int argc, char* argv[]) {
                 return false;
             }
 
-            xaxis = crval + cdelt*(dindgen(nlam) + (1 - crpix));
+            xaxis = crval + cdelt*(indgen<double>(nlam) + (1 - crpix));
             xaxisl = xaxis - 0.5*cdelt;
             xaxisu = xaxis + 0.5*cdelt;
         }
@@ -747,7 +749,7 @@ int phypp_main(int argc, char* argv[]) {
     lamu = lamu[idl];
     goodspec_flag = goodspec_flag[idl];
 
-    // phypp_check(is_sorted(lam), "bug, please report: wavelength array is not sorted");
+    // vif_check(is_sorted(lam), "bug, please report: wavelength array is not sorted");
 
     // Define redshift grid so as to have the requested number of samples per wavelength element
     double tdz = delta_z*min_cdelt/mean(lam);
@@ -899,8 +901,8 @@ int phypp_main(int argc, char* argv[]) {
         uint_t nmodel;        // number of independent models in 'm' (only for linear fit)
 
         // Line amplitudes
-        id_mline = uindgen(lines.size());
-        id_amp = uindgen(lines.size());
+        id_mline = indgen(lines.size());
+        id_amp = indgen(lines.size());
         nparam = lines.size();
         nmodel = lines.size();
         append(p,       replicate(0.0,   lines.size()));
@@ -921,7 +923,7 @@ int phypp_main(int argc, char* argv[]) {
             append(p_min,   replicate(dnan,  1u));
             append(p_max,   replicate(dnan,  1u));
         } else {
-            id_width = nparam + uindgen(lines.size());
+            id_width = nparam + indgen(lines.size());
             nparam += lines.size();
             append(p,       replicate(0.0,   lines.size()));
             append(p_fixed, replicate(false, lines.size()));
@@ -930,7 +932,7 @@ int phypp_main(int argc, char* argv[]) {
         }
 
         // Line offsets
-        id_offset = nparam + uindgen(lines.size());
+        id_offset = nparam + indgen(lines.size());
         nparam += lines.size();
         append(p,       replicate(0.0,         lines.size()));
         append(p_fixed, replicate(true,        lines.size())); // fixed at first
@@ -938,7 +940,7 @@ int phypp_main(int argc, char* argv[]) {
         append(p_max,   replicate(offset_max,  lines.size()));
 
         // Component offsets
-        id_comp_offset = nparam + uindgen(components);
+        id_comp_offset = nparam + indgen(components);
         nparam += components;
         append(p,       replicate(comp_offset_min, components));
         append(p_fixed, replicate(false,           components));
@@ -951,8 +953,8 @@ int phypp_main(int argc, char* argv[]) {
 
         // Continuum level
         if (local_continuum) {
-            id_cont = nparam + uindgen(lines.size());
-            id_mcont = nmodel + uindgen(lines.size());
+            id_cont = nparam + indgen(lines.size());
+            id_mcont = nmodel + indgen(lines.size());
             nparam += lines.size();
             nmodel += lines.size();
             append(p,       replicate(0.0,   lines.size()));
@@ -960,8 +962,8 @@ int phypp_main(int argc, char* argv[]) {
             append(p_min,   replicate(dnan,  lines.size()));
             append(p_max,   replicate(dnan,  lines.size()));
         } else if (fit_continuum_template) {
-            id_cont = nparam + uindgen(templates.size());
-            id_mcont = nmodel + uindgen(templates.size());
+            id_cont = nparam + indgen(templates.size());
+            id_mcont = nmodel + indgen(templates.size());
             nparam += templates.size();
             nmodel += templates.size();
             append(p,       replicate(0.0,   templates.size()));
@@ -1793,7 +1795,7 @@ int phypp_main(int argc, char* argv[]) {
 
     // Build fgroup, line_id
     vec1u fgroup = replicate(0u, lines.size());
-    vec1u line_id = uindgen(lines.size());
+    vec1u line_id = indgen(lines.size());
 
     // Ungroup line groups
     vec1d line_lambda0(lines.size());

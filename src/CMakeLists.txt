@@ -12,13 +12,13 @@ set(NO_GSL ON)
 set(NO_LAPACK ON)
 set(NO_WCSLIB ON)
 
-find_package(phypp REQUIRED)
+find_package(vif REQUIRED)
 
 # Include dependencies
-message(STATUS ${PHYPP_INCLUDE_DIRS})
-include_directories(${PHYPP_INCLUDE_DIRS})
+message(STATUS ${VIF_INCLUDE_DIRS})
+include_directories(${VIF_INCLUDE_DIRS})
 
 # Build slinefit
 add_executable(slinefit slinefit.cpp)
-target_link_libraries(slinefit ${PHYPP_LIBRARIES})
+target_link_libraries(slinefit ${VIF_LIBRARIES})
 install(TARGETS slinefit DESTINATION bin)

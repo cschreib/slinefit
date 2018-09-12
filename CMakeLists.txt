@@ -30,13 +30,13 @@ ExternalProject_Add(cfitsio
         -DCMAKE_INSTALL_PREFIX=${PROJECT_SOURCE_DIR}/external
         -DCMAKE_BUILD_TYPE=Release)
 
-# Configure and build phy++
-ExternalProject_Add(phy++
+# Configure and build vif
+ExternalProject_Add(vif
     DEPENDS cfitsio
-    SOURCE_DIR ${PROJECT_SOURCE_DIR}/external/phypp
-    DOWNLOAD_DIR ${PROJECT_SOURCE_DIR}/external/phypp
-    GIT_REPOSITORY https://github.com/cschreib/phypp.git
-    GIT_TAG ff50fced070b4476af2abbb4f8a6adab6745c4eb
+    SOURCE_DIR ${PROJECT_SOURCE_DIR}/external/vif
+    DOWNLOAD_DIR ${PROJECT_SOURCE_DIR}/external/vif
+    GIT_REPOSITORY https://github.com/cschreib/vif.git
+    GIT_TAG 54cb9f01572557098172f68440e0216e16d96f99
     CMAKE_ARGS
         -DNO_REFLECTION=ON
         -DNO_FFTW=ON
@@ -50,13 +50,13 @@ ExternalProject_Add(phy++
 
 # Configure and build slinefit
 ExternalProject_Add(slinefit
-    DEPENDS phy++
+    DEPENDS vif
     SOURCE_DIR ${PROJECT_SOURCE_DIR}/src
     CMAKE_ARGS
         -DCFITSIO_ROOT_DIR=${PROJECT_SOURCE_DIR}/external
-        -DPHYPP_ROOT_DIR=${PROJECT_SOURCE_DIR}/external
+        -DVIF_ROOT_DIR=${PROJECT_SOURCE_DIR}/external
         -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}
-        -DCMAKE_MODULE_PATH=${PROJECT_SOURCE_DIR}/external/phypp/cmake
+        -DCMAKE_MODULE_PATH=${PROJECT_SOURCE_DIR}/external/vif/cmake
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})
 
 install(PROGRAMS
