@@ -1,5 +1,7 @@
 # slinefit
 
+[![Build Status](https://travis-ci.com/cschreib/slinefit.svg?branch=master)](https://travis-ci.com/cschreib/slinefit)
+
 ```slinefit``` is a simple software that can be used to derive spectroscopic redshifts from 1D spectra, and measure line properties (fluxes, velocity width, velocity offset, ...). Here is the list of the main features and facts:
 
 * Reads the 1D flux and error spectra from a FITS file, wavelengths from the WCS data.
