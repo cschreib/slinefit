@@ -1097,7 +1097,7 @@ int vif_main(int argc, char* argv[]) {
         // Function to perform a linear fit (fixed line widths)
         // -----------------------------------------------------------------
         auto try_lfit = [&](double tz, double& gchi2) {
-            #define TIMEIT
+            // #define TIMEIT
 
             #ifdef TIMEIT
             double oo, o, n;
