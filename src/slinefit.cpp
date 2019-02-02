@@ -296,6 +296,7 @@ int vif_main(int argc, char* argv[]) {
     bool use_aic = false;
     double aic_penalty = 2.0;
     double chi2_cor = 1.0;
+    bool use_nn_solver = false;
     double xmin = dnan, xmax = dnan;
     double lyalpha_width_max = dnan;
     vec1s tlines;
@@ -307,7 +308,8 @@ int vif_main(int argc, char* argv[]) {
         allow_offsets, offset_max, offset_snr_min, delta_offset, residual_rescale,
         mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"), full_range,
         forbid_absorption, components, comp_offset_min, comp_offset_max, delta_comp_offset,
-        save_line_models, chi2_cor, use_aic, aic_penalty, xmin, xmax, lyalpha_width_max
+        save_line_models, chi2_cor, use_aic, aic_penalty, xmin, xmax, lyalpha_width_max,
+        use_nn_solver
     ));
 
     // Check validity of input and create output directories if needed
@@ -404,6 +406,18 @@ int vif_main(int argc, char* argv[]) {
         error("when 'same_width' is set, Ly-alpha must have the same width as other lines");
         error("therefore 'lyalpha_width_max' cannot be used");
         bad = true;
+    }
+
+    if (use_nn_solver) {
+        if (!tlines.empty() && !forbid_absorption) {
+            warning("setting 'use_nn_solver' will not allow fitting for absorption lines");
+            warning("if this is intended, set 'forbid_absorption' to silence this warning");
+        }
+
+        if (use_mpfit) {
+            error("cannot set both 'use_mpfit' and 'use_nn_solver' at the same time");
+            bad = true;
+        }
     }
 
     if (bad) return 1;
@@ -748,8 +762,6 @@ int vif_main(int argc, char* argv[]) {
     laml = laml[idl];
     lamu = lamu[idl];
     goodspec_flag = goodspec_flag[idl];
-
-    // vif_check(is_sorted(lam), "bug, please report: wavelength array is not sorted");
 
     // Define redshift grid so as to have the requested number of samples per wavelength element
     double tdz = delta_z*min_cdelt/mean(lam);
@@ -1224,25 +1236,68 @@ int vif_main(int argc, char* argv[]) {
             #endif
 
             linfit_result res;
-            if (!inplace_invert_symmetric(alpha)) {
-                return false;
-            }
 
-            #ifdef TIMEIT
-            n = now(); print(n - o); o = n;
-            #endif
+            if (use_nn_solver) {
+                // Non-negative linear solver
 
-            inplace_symmetrize(alpha);
-            res.params = alpha*beta;
-            res.errors = sqrt(diagonal(alpha));
+                // Initialize coefficients
+                uint_t nm = beta.size();
+                res.params.resize(nm);
+                res.errors.resize(nm);
+                for (uint_t m : range(nm)) {
+                    res.params.safe[m] = (beta.safe[m] > 0.0 ? 1.0 : 0.0);
+                }
 
-            #ifdef TIMEIT
-            n = now(); print(n - o); o = n;
-            #endif
+                uint_t titer = 0;
+                const uint_t titermax = 10000;
+                const double fit_tftol = 1e-4;
 
-            // If asked, ignore lines that would be fitted in absorption
-            if (forbid_absorption) {
-                res.params[id_amp[where(res.params[id_amp] < 0)]] = 0;
+                double ta, tb;
+                do {
+                    ta = 0.0; tb = 0.0;
+                    for (uint_t m0 : range(nm)) {
+                        double av = 0.0;
+                        for (uint_t m1 : range(nm)) {
+                            av += alpha.safe(m0,m1)*res.params.safe[m1];
+                        }
+
+                        // Update coeff
+                        double old = res.params.safe[m0];
+                        res.params.safe[m0] *= beta.safe[m0]/av;
+
+                        ta += abs(res.params.safe[m0] - old);
+                        tb += old;
+                    }
+
+                    ++titer;
+                } while (ta/tb > fit_tftol && titer < titermax);
+
+                #ifdef TIMEIT
+                n = now(); print(n - o); o = n;
+                #endif
+            } else {
+                // Standard linear solver
+
+                if (!inplace_invert_symmetric(alpha)) {
+                    return false;
+                }
+
+                #ifdef TIMEIT
+                n = now(); print(n - o); o = n;
+                #endif
+
+                inplace_symmetrize(alpha);
+                res.params = alpha*beta;
+                res.errors = sqrt(diagonal(alpha));
+
+                #ifdef TIMEIT
+                n = now(); print(n - o); o = n;
+                #endif
+
+                // If asked, ignore lines that would be fitted in absorption
+                if (forbid_absorption) {
+                    res.params[id_amp[where(res.params[id_amp] < 0)]] = 0;
+                }
             }
 
             // Evaluate best model
@@ -2177,6 +2232,13 @@ void print_help(const std::map<std::string,line_t>& db) {
         "experiment, but double check that the fit results make sense. Note that if "
         "'fix_width' is used, the fit will always be done with the default approach, since "
         "there is no need for a non-linear fit in this case.");
+    bullet("use_nn_solver", "Set this flag to use a linear non-negative solver to fit the line "
+        "profiles. This method uses the Sha et al. (2007) algorithm, which is also used by "
+        "EAzY. The method forces all the fitting components to have positive flux, including "
+        "the lines (so absorption is not possible) and the continuum models. Components "
+        "that are not required are set to zero flux. This will be slower than the default linear "
+        "solver, however it can be more robust because it will not allow unphysical solutions "
+        "(typically, negative fluxes for some of the continuum models).");
     bullet("use_global_chi2", "Set this flag to define the best redshift from the chi2 of "
         "the entire spectrum, rather than the default behavior which is to only use the "
         "spectral elements close to the lines (which is ). This will only make sense if "
