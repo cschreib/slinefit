@@ -1202,7 +1202,7 @@ int vif_main(int argc, char* argv[]) {
                         alpha.safe(im0,im1) = 0.0;
                     }
                     alpha.safe(im0,im0) = 1.0;
-                    beta.safe[im0] = 0.0;
+                    beta.safe[im0] = 1.0;
                 } else {
                     // model x model
                     for (uint_t im1 : range(nmodel)) {
