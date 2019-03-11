@@ -6,6 +6,12 @@ This tutorial will guide you through the analysis of an example spectrum observe
 
 - [Setting up slinefit](#setting-up-slinefit)
 - [Setting up the initial run](#setting-up-the-initial-run)
+    - [The input file, and FITS extensions](#the-input-file-and-fits-extensions)
+    - [The redshift and line grids](#the-redshift-and-line-grids)
+    - [Fixing the FITS header](#fixing-the-fits-header)
+    - [A first \(not very good\) run](#a-first-not-very-good-run)
+- [Improving the fit](#improving-the-fit)
+    - [Cutting the corrupted edges](#cutting-the-corrupted-edges)
 
 <!-- /MarkdownTOC -->
 
@@ -16,6 +22,8 @@ To install slinefit, please follow the instructions given in the README. In what
 
 
 # Setting up the initial run
+
+## The input file, and FITS extensions
 
 In this directory, you will find a FITS file called ```sc_CDFS006664_P1M2Q4_P2M1Q4_003_1.fits```, which was taken straight from the VANDELS DR2 data base. To run slinefit on this spectrum, we must supply the name of the FITS file as first argument to the program:
 
@@ -32,7 +40,9 @@ Firt, this file contains a number of FITS extensions each containing different d
     flux_hdu=0 error_hdu=3
 ```
 
-If you try to run this command, you will see that the program fails with several error messages:
+## The redshift and line grids
+
+If you try to run the command above, you will see that the program fails with several error messages:
 
 ```bash
 error: please provide the fiducial redshift z0=...
@@ -50,11 +60,11 @@ This VANDELS spectrum already has a redshift estimate in the header (```HIERARCH
     flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6
 ```
 
-By default, the program will scan a fine grid of redshifts: the default redshift step is such that a line would move by just one fifth of a pixel (or spectral element). This is controlled by the ```delta_z``` keyword. Such a small step is good for getting the most precise measurement of the redshift, but at this stage we just want to have a first estimate. We will therefore scan with a step of two pixels (given the spectral resolution of the spectrum, ```R=3000```, this is roughly a step of ```0.0007``` in redshift). We therefore set ```delta_z=2```:
+By default, the program will scan a fine grid of redshifts: the default redshift step is such that a line would move by just one fifth of a pixel (or spectral element). This is controlled by the ```delta_z``` keyword. Such a small step is good for getting the most precise measurement of the redshift, but at this stage we just want to have a first estimate. We will therefore scan with a step of two pixels (given the spectral resolution of the spectrum, ```R=3000```, this is roughly a step of ```0.0003``` in redshift). We therefore set ```delta_z=1```:
 
 ```bash
 /home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1.fits \
-    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=2
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1
 ```
 
 Now we need to define which emission line to look for. This is done by listing the lines in the ```lines=[...]``` option, where the ```...``` in brackets must be a comma-separated list (without spaces) of emission line names. The list of all emission line name available by default in the program can be seen by calling the slinefit program without any argument:
@@ -122,7 +132,7 @@ In our case, this is an optical spectrum of a ```z=3``` galaxy; we know that the
 
 ```bash
 /home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1.fits \
-    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=2 \
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1 \
     lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
 ```
 
@@ -130,15 +140,17 @@ The program will then attempt to fit each of these lines with a variable flux an
 
 ```bash
 /home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1.fits \
-    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=2 delta_width=1 \
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1 delta_width=1 \
     lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
 ```
+
+## Fixing the FITS header
 
 Finally, we will also add the ```verbose``` option, so the code will print a summary of its progress in the terminal as the calculation goes on:
 
 ```bash
 /home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1.fits \
-    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=2 delta_width=1 verbose \
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1 delta_width=1 verbose \
     lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
 ```
 
@@ -152,6 +164,9 @@ error: could not find unit of wavelength axis (missing CUNIT1 keyword)
 It looks like the input spectrum is broken, and the program cannot read the unit of the spectral axis. This if of course crucial, because the unit could be anything from Angstroms to meters. It turns out, in this case this happens because the spectrum is missing the ```CUNIT1``` FITS keyword. This is a mistake of the person who produced this spectrum, and ideally we would ask them to fix their pipeline to always add the ```CUNIT``` keyword. But for now we need to add it ourselves. There are a multitude of ways of doing this. Here we will use a brute force method, by replacing a useless keyword:
 
 ```bash
+# Warning: make sure you copy the entire command at once to run it in Bash
+# and that you get to the end of the "sed ..." line (there are a lot of blank spaces
+# but they are important).
 cat sc_CDFS006664_P1M2Q4_P2M1Q4_003_1.fits | \
     sed "s/HIERARCH PND FILE ID = 'ce7489726d481715e83779460408ce60'/CUNIT1  = 'Angstrom'                                     /g" > \
     sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits
@@ -161,8 +176,45 @@ This creates a new spectrum ```sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits``` w
 
 ```bash
 /home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits \
-    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=2 delta_width=1 verbose \
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1 delta_width=1 verbose \
     lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
 ```
 
+## A first (not very good) run
+
 You can now run the command, and get your first fit running! Congratulations. On my computer, this takes only one second to run. It returns a best fit redshift of ```z=2.67568```, which is surprisingly different from the redshift that was given to us in the header, but also the reduced chi squared value is horribly wrong: ```56027.7```. For a good fit, this value should be close to one. Obviously, something has gone wrong... Let's see how we can fix this.
+
+
+# Improving the fit
+
+## Cutting the corrupted edges
+
+In all cases, it is always advisable to visually inspect the spectrum and the best fit model together, to see if all is as we expect. By default slinefit does not write the best fit model, but we can ask it to do so by adding the ```save_model``` option:
+
+```bash
+/home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits \
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1 delta_width=1 verbose save_model \
+    lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
+```
+
+This will create a file called ```sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed_slfit_model.fits```. It is a FITS file containing the best model 1D spectrum in the first extension. To visualize this, you can use any program of your choice (Python, IDL, etc.) provided you can open FITS files and make a simple plot. I will use IDL in the following, but there's nothing specific to IDL in any of this.
+
+```idl
+filebase = 'sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed'
+; Read the flux spectrum
+f = mrdfits(filebase+'.fits', 0, hdr, /silent)
+; Read the error spectrum
+e = mrdfits(filebase+'.fits', 3, /silent)
+; Read the error spectrum
+m = mrdfits(filebase+'_slfit_model.fits', 1, /silent)
+; Create the wavelength axis
+l = (dindgen(n_elements(f))+1 - sxpar(hdr, 'CRPIX1'))*sxpar(hdr, 'CDELT1') + sxpar(hdr, 'CRVAL1')
+
+; Plot the spectrum in white and the model in red
+plot, l, f
+oplot, l, m, color='ff'x
+```
+
+This produces the following:
+
+![Tutorial image 01](tutorial_01.png)
