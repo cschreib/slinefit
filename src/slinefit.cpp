@@ -288,6 +288,7 @@ int vif_main(int argc, char* argv[]) {
     bool verbose = false;
     bool save_model = false;
     bool save_line_models = false;
+    bool save_rescaling = false;
     std::string outdir;
     bool ascii = false;
     uint_t tseed = 42;
@@ -309,7 +310,7 @@ int vif_main(int argc, char* argv[]) {
         mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"), full_range,
         forbid_absorption, components, comp_offset_min, comp_offset_max, delta_comp_offset,
         save_line_models, chi2_cor, use_aic, aic_penalty, xmin, xmax, lyalpha_width_max,
-        use_nn_solver
+        use_nn_solver, save_rescaling
     ));
 
     // Check validity of input and create output directories if needed
@@ -1633,22 +1634,24 @@ int vif_main(int argc, char* argv[]) {
 
         // For lines that had too few valid data points to estimate RMS, assume the worst
         vec1u idff = where(is_finite(rescale));
+        vec1d err_rescale;
         if (!idff.empty()) {
             rescale[where(!is_finite(rescale))] = max(rescale[idff]);
 
             // Rescale whole error spectrum
             if (lines.size() > 1) {
                 vec1u ids = sort(rlam); rlam = rlam[ids]; rescale = rescale[ids];
-                vec1d rsc = interpolate(rescale, rlam, lam);
-                rsc[where(lam < min(rlam))] = rescale.front();
-                rsc[where(lam > max(rlam))] = rescale.back();
-                err *= rsc;
+                err_rescale = interpolate(rescale, rlam, lam);
+                err_rescale[where(lam < min(rlam))] = rescale.front();
+                err_rescale[where(lam > max(rlam))] = rescale.back();
             } else {
-                err *= rescale[0];
+                err_rescale = replicate(rescale[0], err.size());
             }
 
+            err *= err_rescale;
+
             if (verbose) {
-                note("rescaling uncertainties from residual (min=", min(rescale), ", max=", max(rescale), ")");
+                note("rescaling uncertainties from residual (min=", min(err_rescale), ", max=", max(err_rescale), ")");
                 note("fitting again...");
             }
 
@@ -1658,6 +1661,31 @@ int vif_main(int argc, char* argv[]) {
 
             // Enable second pass fitting
             force_second_pass = true;
+        }
+
+        if (save_rescaling) {
+            vec1d brescale = reshape(err_rescale, idl, orig_nlam, dnan);
+
+            for (uint_t s : range(spec_file)) {
+                // Retrieve spectral element from this spectrum
+                vec1d trescale = brescale[spec_l0[s]-_-spec_l1[s]];
+
+                if (spec_freq[s]) {
+                    // Reverse back the array to frequency ordering
+                    trescale = reverse(trescale);
+                }
+
+                // Then save it
+                fits::input_image fimg(spec_file[s]);
+                fimg.reach_hdu(flux_hdu);
+
+                std::string filebase = outdir+file::remove_extension(file::get_basename(spec_file[s]));
+                fits::output_image ospec(filebase+"_slfit_error_rescale.fits");
+
+                ospec.reach_hdu(1);
+                ospec.write(trescale);
+                ospec.write_header(fimg.read_header());
+            }
         }
     }
 
