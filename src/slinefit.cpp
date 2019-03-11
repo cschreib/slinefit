@@ -3,6 +3,8 @@
 
 using namespace vif;
 
+const std::string SLINEFIT_VERSION = "2.0";
+
 // Structure to define a line or line group to be fitted simultaneously
 struct line_t {
     line_t() = default;
@@ -422,6 +424,10 @@ int vif_main(int argc, char* argv[]) {
     }
 
     if (bad) return 1;
+
+    if (verbose) {
+        note("running slinefit v", SLINEFIT_VERSION);
+    }
 
     // Get lines in database
     double lambda_min = finf, lambda_max = -finf;
@@ -2089,7 +2095,7 @@ int vif_main(int argc, char* argv[]) {
 void print_help(const std::map<std::string,line_t>& db) {
     using namespace terminal_format;
 
-    print("slinefit v2.0");
+    print("slinefit v", SLINEFIT_VERSION);
     print("usage: slinefit <spectrum.fits> z0=... dz=... lines=... [options]");
     print("");
     print("Main parameters:");
