@@ -567,7 +567,7 @@ int vif_main(int argc, char* argv[]) {
         std::string cunit; {
             if (!fimg.read_keyword("CUNIT1", cunit)) {
                 error("reading ", filename);
-                error("could not find unit of wavelength axis");
+                error("could not find unit of wavelength axis (missing CUNIT1 keyword)");
                 return false;
             } else {
                 cunit = to_lower(cunit);
