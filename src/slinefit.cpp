@@ -566,9 +566,9 @@ int vif_main(int argc, char* argv[]) {
         bool tfrequency = false;
         std::string cunit; {
             if (!fimg.read_keyword("CUNIT1", cunit)) {
-                warning("reading ", filename);
-                warning("could not find unit of wavelength axis");
-                note("assuming wavelengths are given in microns");
+                error("reading ", filename);
+                error("could not find unit of wavelength axis");
+                return false;
             } else {
                 cunit = to_lower(cunit);
                 double conv = 1.0;

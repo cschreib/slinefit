@@ -69,7 +69,7 @@ First, ```CUNIT1``` specifies the unit of the axis, which can be any of the foll
 * wavelengths: angstrom, nm, um, micron, cm, m
 * frequencies: hz, khz, mhz, ghz
 
-Any non-recognized unit will trigger an error. If the ```CUNIT1``` keyword is missing, a warning will be issued and the code will assume the unit is ```um```.
+Any non-recognized unit will trigger an error, as will a missing ```CUNIT1``` keyword.
 
 Second, ```CTYPE1``` indicates the format of the axis. There are three formats: linear, logarithmic, and tabulated. If ```CTYPE1``` starts with ```LOG...```, the code will assume a logarithmic scaling. If ```CTYPE1``` starts with ```TAB...```, the code will assume a tabulated axis. In all other cases, the code will assume linear scaling (in which case, it is recommended but not mandatory to set ```CTYPE1='WAVE'``` for a wavelength axis and ```CTYPE1='FREQ'``` for frequency data).
 
