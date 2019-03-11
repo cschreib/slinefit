@@ -4,6 +4,7 @@ v2.1
 Bug fixes:
  - The rescaling of error spectrum was not working as intended, and was mostly just applying
    a constant factor to all the spectrum instead of having a wavelength dependence.
+ - Fixed a bug with 'local_continuum' for lines that are partially or not covered.
 
 New features:
  - The code can now output the adopted rescaling of the error spectrum.

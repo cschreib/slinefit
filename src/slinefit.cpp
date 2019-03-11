@@ -1169,10 +1169,12 @@ int vif_main(int argc, char* argv[]) {
                 }
             }
 
-            for (uint_t it : range(templates)) {
-                uint_t icl = id_mcont[it];
-                model_start[icl] = 0;
-                model_end[icl] = lam.size();
+            if (fit_continuum_template) {
+                for (uint_t it : range(templates)) {
+                    uint_t icl = id_mcont[it];
+                    model_start[icl] = 0;
+                    model_end[icl] = lam.size();
+                }
             }
 
             #ifdef TIMEIT
@@ -1405,6 +1407,13 @@ int vif_main(int argc, char* argv[]) {
                     (1.0 + tz)*lines[il].continuum_lmin,
                     (1.0 + tz)*lines[il].continuum_lmax
                 );
+
+                if (b[0] == npos) {
+                    b[0] = 0;
+                }
+                if (b[1] == npos) {
+                    b[1] = lam.size();
+                }
 
                 line_cont_start[il] = b[0];
                 line_cont_end[il] = b[1];
