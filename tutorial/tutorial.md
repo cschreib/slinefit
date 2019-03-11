@@ -11,7 +11,9 @@ This tutorial will guide you through the analysis of an example spectrum observe
     - [Fixing the FITS header](#fixing-the-fits-header)
     - [A first \(not very good\) run](#a-first-not-very-good-run)
 - [Improving the fit](#improving-the-fit)
-    - [Cutting the corrupted edges](#cutting-the-corrupted-edges)
+    - [Visualizing the fit](#visualizing-the-fit)
+    - [Cutting corrupted edges](#cutting-corrupted-edges)
+    - [Fitting the continuum](#fitting-the-continuum)
 
 <!-- /MarkdownTOC -->
 
@@ -187,7 +189,7 @@ You can now run the command, and get your first fit running! Congratulations. On
 
 # Improving the fit
 
-## Cutting the corrupted edges
+## Visualizing the fit
 
 In all cases, it is always advisable to visually inspect the spectrum and the best fit model together, to see if all is as we expect. By default slinefit does not write the best fit model, but we can ask it to do so by adding the ```save_model``` option:
 
@@ -218,3 +220,44 @@ oplot, l, m, color='ff'x
 This produces the following:
 
 ![Tutorial image 01](tutorial_01.png)
+
+Something is obviously wrong with the data, there seems to be a strong negative spike at 10300A and the model attempts to reproduce it as best it can. This could be just noise though. Let's look at it in more detail by zooming in on the area of interest:
+
+```idl
+# Plot the flux in white, the uncertainty in yellow, the model in red
+plot, l, f, xrange=[10250,10300], psym=-5
+oplot, l, e, color='ffff'x
+oplot, l, m, color='ff'x
+```
+
+![Tutorial image 02](tutorial_02.png)
+
+The spike is relatively narrow, just two spectral elements, but the error spectrum is very small at that location; we would not expect such a strong negative value just from the noise. The data was probably corrupted here.
+
+## Cutting corrupted edges
+
+This is a relatively frequent case, where the edges of a spectrum are corrupted or extremely noisy. For this reason, slinefit allows you to discard a chosen number of spectral elements at the edge of the spectrum. This is done with the ```lambda_pad``` option. By default it is set at 5, which excludes the first and last 5 elements of the spectrum. Given the plot above, it seems we should probably increase this value, for example to 11:
+
+```bash
+/home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits \
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1 delta_width=1 verbose save_model lambda_pad=11 \
+    lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
+```
+
+This definitely changed things. The best fit redshift is now ```z=3.37703```, and the reduced chi squared has reduced to ```187.015```. This is much better, but still terrible!
+
+## Fitting the continuum
+
+Let's look again at the model and the spectrum:
+
+```idl
+# Make sure you read again the files... (not shown here for clarity)
+# Plot the flux in white, the model in red
+# (we truncate the Y range to the range covered by the model, to avoid the big negative spike)
+plot, l, f, yrange=[min(m), max(m)]
+oplot, l, m, color='ff'x
+```
+
+![Tutorial image 03](tutorial_03.png)
+
+Ah. It seems there is some clear continuum flux in this spectrum, but currently we are only modeling lines. Let's improve this.
