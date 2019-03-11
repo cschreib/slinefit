@@ -14,6 +14,8 @@ This tutorial will guide you through the analysis of an example spectrum observe
     - [Visualizing the fit](#visualizing-the-fit)
     - [Cutting corrupted edges](#cutting-corrupted-edges)
     - [Fitting the continuum](#fitting-the-continuum)
+    - [Automatic rescaling of uncertainties](#automatic-rescaling-of-uncertainties)
+    - [Refining the fit](#refining-the-fit)
 
 <!-- /MarkdownTOC -->
 
@@ -184,7 +186,7 @@ This creates a new spectrum ```sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits``` w
 
 ## A first (not very good) run
 
-You can now run the command, and get your first fit running! Congratulations. On my computer, this takes only one second to run. It returns a best fit redshift of ```z=2.67568```, which is surprisingly different from the redshift that was given to us in the header, but also the reduced chi squared value is horribly wrong: ```56027.7```. For a good fit, this value should be close to one. Obviously, something has gone wrong... Let's see how we can fix this.
+You can now run the command, and get your first fit running! Congratulations. On my computer, this takes only one second to run. It returns a best fit redshift of ```z=2.67568```, which is surprisingly different from the redshift that was given to us in the header, but also the reduced chi squared value is horribly wrong: ```56028```. For a good fit, this value should be close to one. Obviously, something has gone wrong... Let's see how we can fix this.
 
 
 # Improving the fit
@@ -207,7 +209,7 @@ filebase = 'sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed'
 f = mrdfits(filebase+'.fits', 0, hdr, /silent)
 ; Read the error spectrum
 e = mrdfits(filebase+'.fits', 3, /silent)
-; Read the error spectrum
+; Read the best fit model
 m = mrdfits(filebase+'_slfit_model.fits', 1, /silent)
 ; Create the wavelength axis
 l = (dindgen(n_elements(f))+1 - sxpar(hdr, 'CRPIX1'))*sxpar(hdr, 'CDELT1') + sxpar(hdr, 'CRVAL1')
@@ -244,7 +246,7 @@ This is a relatively frequent case, where the edges of a spectrum are corrupted 
     lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
 ```
 
-This definitely changed things. The best fit redshift is now ```z=3.37703```, and the reduced chi squared has reduced to ```187.015```. This is much better, but still terrible!
+This definitely changed things. The best fit redshift is now ```z=3.37703```, and the reduced chi squared has dropped to ```187```. This is much better, but still terrible!
 
 ## Fitting the continuum
 
@@ -261,3 +263,137 @@ oplot, l, m, color='ff'x
 ![Tutorial image 03](tutorial_03.png)
 
 Ah. It seems there is some clear continuum flux in this spectrum, but currently we are only modeling lines. Let's improve this.
+
+In slinefit, there are two ways to model the continuum. The first and simplest method fits a constant "pedestal" around each line. It is enabled with the option ```local_continuum```, while ```local_continuum_width``` controls the width (in km/s) of the pedestal. This is only useful when modeling a single line however; when fitting multiple lines over such a long wavelength range, this is far from optimal, but you can give it a try and see for yourself.
+
+A better alternative is to provide the code with a set of galaxy templates that it can use to model the continuum. This is done with the option ```fit_continuum_template```, and the ```template_dir``` option is used to indicate in which folder to look for these templates. In particular, slinefit comes with a set of templates in the ```slinefit/bin/templates``` folder, and we will use these for this tutorial. The command is now:
+
+```bash
+/home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits \
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1 delta_width=1 verbose save_model lambda_pad=11 \
+    fit_continuum_template template_dir=/home/user/programs/slinefit/bin/templates \
+    lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
+```
+
+This produces a redshift of ```z=2.88784``` (very close to the redshift given in the header, ```z=2.8895```),  and a reduced chi squared of ```8.35```, which is again a huge improvement but still not very good. Let's look a the fit:
+
+![Tutorial image 04](tutorial_04.png)
+
+It looks like the code has found a decent model for the continuum emission, and it is seeing some absorption lines between 4000 and 6000 Angstrom.
+
+## Automatic rescaling of uncertainties
+
+The fit now looks good, so we are getting closer, but a reduced chi squared of ```8``` is still not acceptable. At this level, this can mean a number of things. First, it could mean that our model is not good (we may be missing some important lines, or we are not searching the right redshift range). Based on the plot above, it does not appear that there is an area where the model is obviously bad however. The alternative is that the error spectrum is not accurate. This is a pretty common situation when the error spectrum is determined by a pipeline by simply propagating the Poisson statistics, because it will not take into account other forms of noise or systematics (for example, variation in atmospheric transmission, inaccuracies in the sky subtraction, etc).
+
+To cope for this issue, slinefit has a built in mechanism for rescaling the error spectrum based on the quality of the fit residuals. Before doing this, let us inspect visually these residuals:
+
+```idl
+# Make sure you read again the files... (not shown here for clarity)
+# We're plotting the residuals as (flux - model)/uncertainty
+# If the model and the uncertainties are correct, this should have a Gaussian distribution
+# centered on zero and with a standard deviation of one.
+plot, l, (f-m)/e, yrange=[-10,10]
+
+id = where(finite(m))
+
+# This prints the standard deviation of the residuals, should be one
+print, stddev((f[id] - m[id])/e[id])
+```
+
+![Tutorial image 05](tutorial_05.png)
+
+The standard deviation of these residuals is ```2.87```, which is pretty far from one. Taken at face value, this would mean that the uncertainty is globally under-estimated by a factor of about three, which is large. From the plot, we see that parts of the spectrum have residuals that reach more than 10 sigma, which is also not an acceptable fit. It also looks like some parts of the spectrum have better behaved residuals, where the scatter is closer to one (see in particular below 5500A).
+
+Let us now see what slinefit can do to help. Internally, the program will built these same residuals, and it will compute the standard deviation of the residuals in the vicinity of each line that is included in the fit. This will give it an idea of how bad the residuals are at several positions along the spectral axis. It will then correct the uncertainty spectrum so that the residuals have a standard deviation closer to unity. It will then run the fit again with the corrected uncertainties. This is done by setting the option ```residual_rescale```, and we can also set the option ```save_rescaling``` to output the correction factor that the program found:
+
+```bash
+/home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits \
+    flux_hdu=0 error_hdu=3 z0=2.9 dz=0.6 delta_z=1 delta_width=1 verbose save_model lambda_pad=11 \
+    fit_continuum_template template_dir=/home/user/programs/slinefit/bin/templates \
+    residual_rescale save_rescaling \
+    lines=[em_lyalpha,em_mg2_2799,em_o2_3727,abs_si2_1260,abs_o1_1302,abs_c2_1335,em_si4_1400,abs_si2_1526,em_c4_1550]
+```
+
+This takes twice longer to run, but now the reduced chi squared is equal to one (pretty much by construction). It turns out that the redshift solution has not changed however.
+
+Below is the correction factor that the code has applied, and you can see how it matches what we could qualitatively observe by looking at the residuals by eye:
+
+```idl
+# Make sure you read again the files... (not shown here for clarity)
+# Now also read in the file with the uncertainty correction
+c = mrdfits(filebase+'_slfit_error_rescale.fits', 1, /silent)
+
+# Plot the correction
+plot, l, c
+```
+
+![Tutorial image 06](tutorial_06.png)
+
+The best fit model has not changed much, we get ```z = 2.88784 +/- 0.0006```, which looks very precise, and since the reduced chi squared is now close one we can trust this uncertainty. Let's now plot this solution alongside the error spectrum, with and without the correction applied:
+
+```idl
+# Make sure you read again the files... (not shown here for clarity)
+# We're plotting the spectrum in white, the model in red, the original
+# uncertainty in yellow, and the corrected uncertainty in green
+plot, l, f, yrange=[min(m), max(m)]
+oplot, l, m, color='ff'x, thick=2
+oplot, l, e, color='ffff'x
+oplot, l, e*c, color='ff00'x
+```
+
+![Tutorial image 07](tutorial_07.png)
+
+Nothing looks off from here, notice however how the uncertainty level is increased by the correction. Let's finally take a look at the corrected residuals:
+
+```idl
+# Make sure you read again the files... (not shown here for clarity)
+plot, l, (f-m)/(c*e), yrange=[-10,10]
+```
+
+![Tutorial image 08](tutorial_08.png)
+
+Now the largest deviation is at about 4 sigma, which is more reasonable. But maybe we can still do better?
+
+## Refining the fit
+
+After going through all the above, we now have a satisfactory fit where we can trust the redshift. We can then run a second pass of slinefit to refine the model by narrowing down the search window for the redshift, decreasing the grid step to get more precise measurements, adding more lines, etc. Let's do all of this!
+
+First we will change the redshift search window. We now know (re-discovered) that the redshift was close to ```z=2.888```. Let's use this as starting point, by setting ```z0=2.888```. There is no need to look at redshifts very far from this value, so we can also reduce the size of the search window, by setting ```dz=0.003```. We will also decrease the redshift and line search steps, by setting ```delta_z``` and ```delta_width``` back to their default values of one fifth of a pixel (we can do this by simply removing these options from the list on the command line). Finally, we will be using a more complete line list (see below).
+
+We want to keep the first pass fit, for reference. Therefore we will save the output of this second run inside a new directory called ```final```. This is done with the ```outdir``` option (if the directory does not exist, the program will create it itself). Keeping all other options unchanged, the command becomes:
+
+```bash
+/home/user/programs/slinefit/bin/slinefit sc_CDFS006664_P1M2Q4_P2M1Q4_003_1_fixed.fits \
+    flux_hdu=0 error_hdu=3 z0=2.888 dz=0.003 verbose save_model lambda_pad=11 \
+    fit_continuum_template template_dir=/home/user/programs/slinefit/bin/templates \
+    residual_rescale save_rescaling outdir=final \
+    lines=[em_lyalpha,em_n5_1240,em_si4_1400,em_c4_1550,em_he2_1640,em_c3_1909,em_c2_2326,em_ne4_2422,em_mg2_2799,em_ne5_3426,em_o2_3727,abs_c3_1176,abs_si2_1260,abs_o1_1302,abs_si2_1304,abs_c2_1335,abs_o4_1342,abs_s5_1502,abs_si2_1526,abs_fe2_1608,abs_al2_1671,abs_al3_1855,abs_fe2_2344,abs_fe2_2380,abs_fe2_2600]
+```
+
+We now get a better handle on the redshift: ```z = 2.88787 +/- 0.00016```. The overall chi squared of the fit has been reduced from ```2106``` to ```820```, however we also increased the number of fit parameters (20 lines instead of 9 in the previous run), so in the end the reduced chi squared has increased a bit to ```1.3```. This is still an acceptable value. Note that, because we're changing the model, we're also changing the residuals, hence the correction factor that has been applied to the uncertainty spectrum:
+
+```idl
+# Make sure you read again the files... (not shown here for clarity)
+# Now also read in the file with the uncertainty correction
+c2 = mrdfits('final/'+filebase+'_slfit_error_rescale.fits', 1, /silent)
+
+# Plot the correction from the first pass in white, and second pass in red
+plot, l, c
+oplot, l, c2, color='ff'x
+```
+
+![Tutorial image 09](tutorial_09.png)
+
+As you can see the shape of the correction has changed a bit, although the overall value has remained mostly the same. The new best fit is now:
+
+```idl
+; Read the new best fit model
+m2 = mrdfits('final/'+filebase+'_slfit_model.fits', 1, /silent)
+
+; Plot the spectrum in white, the first pass model in red, and the second pass model in green
+plot, l, f, yrange=[min(m),max(m)]
+oplot, l, m, color='ff'x
+oplot, l, m2, color='ff00'x
+```
+
+![Tutorial image 10](tutorial_10.png)
