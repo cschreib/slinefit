@@ -1628,7 +1628,7 @@ int vif_main(int argc, char* argv[]) {
             best_fit.lambda_err[il] *= rescale[il];
             best_fit.ew_err[il]     *= rescale[il];
             best_fit.cont_err[il]   *= rescale[il];
-            rlam[il] = mean(lines[il].lambda);
+            rlam[il] = mean(lines[il].lambda)*(1.0 + best_fit.z);
         }
 
         // For lines that had too few valid data points to estimate RMS, assume the worst
