@@ -471,7 +471,7 @@ help, r
 ;   ZLOW            DOUBLE       0.00017182165
 ;   ZODDS           DOUBLE           1.0000000
 ;   FGROUP          LONG64    Array[35]
-;   NDOF            LONG64                       630
+;   NDOF            LONG64                 630
 ;   FLUX            DOUBLE    Array[35]
 ;   FLUX_ERR        DOUBLE    Array[35]
 ;   FREE_WIDTH      BYTE      Array[35]
