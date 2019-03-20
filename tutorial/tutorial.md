@@ -6,21 +6,21 @@ This tutorial will guide you through the analysis of an example spectrum observe
 
 - [Setting up slinefit](#setting-up-slinefit)
 - [Setting up the initial run](#setting-up-the-initial-run)
-    - [The input file, and FITS extensions](#the-input-file-and-fits-extensions)
-    - [The redshift and line grids](#the-redshift-and-line-grids)
-    - [Fixing the FITS header](#fixing-the-fits-header)
-    - [A first \(not very good\) run](#a-first-not-very-good-run)
+  - [The input file, and FITS extensions](#the-input-file-and-fits-extensions)
+  - [The redshift and line grids](#the-redshift-and-line-grids)
+  - [Fixing the FITS header](#fixing-the-fits-header)
+  - [A first \(not very good\) run](#a-first-not-very-good-run)
 - [Improving the fit](#improving-the-fit)
-    - [Visualizing the fit](#visualizing-the-fit)
-    - [Cutting corrupted edges](#cutting-corrupted-edges)
-    - [Fitting the continuum](#fitting-the-continuum)
-    - [Automatic rescaling of uncertainties](#automatic-rescaling-of-uncertainties)
-    - [Refining the fit](#refining-the-fit)
-    - [More refining](#more-refining)
-    - [Adding more lines](#adding-more-lines)
+  - [Visualizing the fit](#visualizing-the-fit)
+  - [Cutting corrupted edges](#cutting-corrupted-edges)
+  - [Fitting the continuum](#fitting-the-continuum)
+  - [Automatic rescaling of uncertainties](#automatic-rescaling-of-uncertainties)
+  - [Refining the fit](#refining-the-fit)
+  - [More refining](#more-refining)
+  - [Adding more lines](#adding-more-lines)
 - [Line fluxes, widths, and error bars](#line-fluxes-widths-and-error-bars)
-    - [Reading the output of the fit](#reading-the-output-of-the-fit)
-    - [Better uncertainties](#better-uncertainties)
+  - [Reading the output of the fit](#reading-the-output-of-the-fit)
+  - [Better uncertainties](#better-uncertainties)
 - [Conclusion](#conclusion)
 
 <!-- /MarkdownTOC -->
@@ -232,7 +232,7 @@ This produces the following:
 Something is obviously wrong with the data, there seems to be a strong negative spike at 10300A and the model attempts to reproduce it as best it can. This could be just noise though. Let's look at it in more detail by zooming in on the area of interest:
 
 ```idl
-# Plot the flux in white, the uncertainty in yellow, the model in red
+; Plot the flux in white, the uncertainty in yellow, the model in red
 plot, l, f, xrange=[10250,10300], psym=-5
 oplot, l, e, color='ffff'x
 oplot, l, m, color='ff'x
@@ -259,9 +259,9 @@ This definitely changed things. The best fit redshift is now ```z=3.37703```, an
 Let's look again at the model and the spectrum:
 
 ```idl
-# Make sure you read again the files... (not shown here for clarity)
-# Plot the flux in white, the model in red
-# (we truncate the Y range to the range covered by the model, to avoid the big negative spike)
+; Make sure you read again the files... (not shown here for clarity)
+; Plot the flux in white, the model in red
+; (we truncate the Y range to the range covered by the model, to avoid the big negative spike)
 plot, l, f, yrange=[min(m), max(m)]
 oplot, l, m, color='ff'x
 ```
@@ -296,15 +296,14 @@ The fit now looks good, so we are getting closer, but a reduced chi squared of `
 To cope for this issue, slinefit has a built in mechanism for rescaling the error spectrum based on the quality of the fit residuals. Before doing this, let us inspect visually these residuals:
 
 ```idl
-# Make sure you read again the files... (not shown here for clarity)
-# We're plotting the residuals as (flux - model)/uncertainty
-# If the model and the uncertainties are correct, this should have a Gaussian distribution
-# centered on zero and with a standard deviation of one.
+; Make sure you read again the files... (not shown here for clarity)
+; We're plotting the residuals as (flux - model)/uncertainty
+; If the model and the uncertainties are correct, this should have a Gaussian distribution
+; centered on zero and with a standard deviation of one.
 plot, l, (f-m)/e, yrange=[-10,10]
 
+; This prints the standard deviation of the residuals, should be one
 id = where(finite(m))
-
-# This prints the standard deviation of the residuals, should be one
 print, stddev((f[id] - m[id])/e[id])
 ```
 
@@ -327,11 +326,11 @@ This takes twice longer to run, but now the reduced chi squared is equal to one 
 Below is the correction factor that the code has applied, and you can see how it matches what we could qualitatively observe by looking at the residuals by eye:
 
 ```idl
-# Make sure you read again the files... (not shown here for clarity)
-# Now also read in the file with the uncertainty correction
+; Make sure you read again the files... (not shown here for clarity)
+; Now also read in the file with the uncertainty correction
 c = mrdfits(filebase+'_slfit_error_rescale.fits', 1, /silent)
 
-# Plot the correction
+; Plot the correction
 plot, l, c
 ```
 
@@ -340,9 +339,9 @@ plot, l, c
 The best fit model has not changed much, we get ```z = 2.88784 +/- 0.0006```, which looks very precise, and since the reduced chi squared is now close one we can trust this uncertainty. Let's now plot this solution alongside the error spectrum, with and without the correction applied:
 
 ```idl
-# Make sure you read again the files... (not shown here for clarity)
-# We're plotting the spectrum in white, the model in red, the original
-# uncertainty in yellow, and the corrected uncertainty in green
+; Make sure you read again the files... (not shown here for clarity)
+; We're plotting the spectrum in white, the model in red, the original
+; uncertainty in yellow, and the corrected uncertainty in green
 plot, l, f, yrange=[min(m), max(m)]
 oplot, l, m, color='ff'x, thick=2
 oplot, l, e, color='ffff'x
@@ -354,7 +353,7 @@ oplot, l, e*c, color='ff00'x
 Nothing looks off from here, notice however how the uncertainty level is increased by the correction. Let's finally take a look at the corrected residuals:
 
 ```idl
-# Make sure you read again the files... (not shown here for clarity)
+; Make sure you read again the files... (not shown here for clarity)
 plot, l, (f-m)/(c*e), yrange=[-10,10]
 ```
 
@@ -381,8 +380,8 @@ We want to keep the results of the first pass fit, for reference. Therefore we w
 We now get a better handle on the redshift: ```z = 2.88787 +/- 0.00016```. The overall chi squared of the fit has been reduced from ```2106``` to ```820```, meaning that the fit has improved, however we also increased the number of fit parameters (20 lines instead of 9 in the previous run), so in the end the reduced chi squared has increased a bit to ```1.3```. This is still an acceptable value. Note that, because we're changing the model, we're also changing the residuals, hence the correction factor that has been applied to the uncertainty spectrum:
 
 ```idl
-# Make sure you read again the files... (not shown here for clarity)
-# Now also read in the file with the uncertainty correction
+; Make sure you read again the files... (not shown here for clarity)
+; Now also read in the file with the uncertainty correction
 c2 = mrdfits('final/'+filebase+'_slfit_error_rescale.fits', 1, /silent)
 
 # Plot the correction from the first pass in white, and second pass in red
@@ -409,7 +408,7 @@ oplot, l, m2, color='ff00'x
 Let's finally look at the residuals between 6000 and 7000A, where we could see in the previous residuals that there was some 4 sigma features:
 
 ```idl
-# Plot the original residual in white and the new residuals in red
+; Plot the original residual in white and the new residuals in red
 plot, l, (f-m)/(c*e), yr=[-5,5], xr=[6200,6600]
 oplot, l, (f-m2)/(c2*e), color='ff'x
 ```
