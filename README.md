@@ -149,4 +149,4 @@ Below are two examples of fits obtained with ```slinefit```. The first is a fit 
 
 # In depth tutorial
 
-A tutorial is available in the ```docs``` directory, where the various features of the code are explained and illustrated on a real spectrum.
+A tutorial is available in [tutorial/tutorial.md](tutorial/tutorial.md), where the various features of the code are explained and illustrated on a real spectrum.
