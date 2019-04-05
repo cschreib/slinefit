@@ -435,7 +435,7 @@ int vif_main(int argc, char* argv[]) {
     for (std::string& l : tlines) {
         if (l.find(':') != l.npos) {
             vec1s spl = split(l, ":");
-            if (spl.size() < 2 || (spl.size() > 2 && spl.size()%2 != 1)) {
+            if (spl.size() < 2 || spl.size() == 3 || (spl.size() > 2 && spl.size()%2 != 1)) {
                 error("ill-formed line declaration '", l, "'");
                 error("custom line declaration must be of the form 'name:lambda' or "
                     "'name:lambda1:lambda2:...:ratio1:ratio2,...'");
