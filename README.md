@@ -2,11 +2,11 @@
 
 [![Build Status](https://travis-ci.com/cschreib/slinefit.svg?branch=master)](https://travis-ci.com/cschreib/slinefit)
 
-<!-- MarkdownTOC depth=0 -->
+<!-- MarkdownTOC autolink="true" -->
 
 - [Description](#description)
 - [Install instructions](#install-instructions)
-- [Format of input spectrum](#format-of-the-input-spectrum)
+- [Format of input spectrum](#format-of-input-spectrum)
 - [Typical usage](#typical-usage)
 - [In depth tutorial](#in-depth-tutorial)
 
