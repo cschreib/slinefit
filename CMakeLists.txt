@@ -28,6 +28,8 @@ ExternalProject_Add(cfitsio
         -DBUILD_TOOLS=OFF
         -DBUILD_TESTS=OFF
         -DCMAKE_INSTALL_PREFIX=${PROJECT_SOURCE_DIR}/external
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_BUILD_TYPE=Release)
 
 # Configure and build vif
@@ -43,9 +45,11 @@ ExternalProject_Add(vif
         -DNO_LAPACK=ON
         -DNO_GSL=ON
         -DNO_WCSLIB=ON
-        -DPHYPP_INPLACE_BUILD=ON
+        -DVIF_INPLACE_BUILD=ON
         -DCFITSIO_ROOT_DIR=${PROJECT_SOURCE_DIR}/external
         -DCMAKE_INSTALL_PREFIX=${PROJECT_SOURCE_DIR}/external
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_BUILD_TYPE=Release)
 
 # Configure and build slinefit
@@ -57,6 +61,8 @@ ExternalProject_Add(slinefit
         -DVIF_ROOT_DIR=${PROJECT_SOURCE_DIR}/external
         -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}
         -DCMAKE_MODULE_PATH=${PROJECT_SOURCE_DIR}/external/vif/cmake
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})
 
 install(PROGRAMS
