@@ -20,8 +20,8 @@ endif()
 ExternalProject_Add(cfitsio
     SOURCE_DIR ${PROJECT_SOURCE_DIR}/external/cfitsio
     DOWNLOAD_DIR ${PROJECT_SOURCE_DIR}/external/cfitsio
-    GIT_REPOSITORY https://github.com/HEASARC/cfitsio.git
-    GIT_TAG ff6bdb0c2f891ae6709f6bb2378e24e005b7c92b
+    GIT_REPOSITORY https://github.com/cschreib/cfitsio.git
+    GIT_TAG 9a9fbdba78f5583795f995c0f43007c191ff1b91
     CMAKE_ARGS
         -DBUILD_SHARED_LIBS=OFF
         -DUSE_PTHREADS=ON
