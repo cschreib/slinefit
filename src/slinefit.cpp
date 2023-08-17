@@ -279,6 +279,7 @@ int vif_main(int argc, char* argv[]) {
     double local_continuum_width = 8000.0;
     bool fit_continuum_template = false;
     bool residual_rescale = false;
+    bool residual_rescale_global = false;
     std::string template_dir = "templates/";
     double fix_width = dnan;
     uint_t lambda_pad = 5;
@@ -309,10 +310,10 @@ int vif_main(int argc, char* argv[]) {
         delta_z, lambda_pad, local_continuum, local_continuum_width, flux_hdu, error_hdu,
         fit_continuum_template, template_dir, use_global_chi2, odds_dz,
         allow_offsets, offset_max, offset_snr_min, delta_offset, residual_rescale,
-        mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"), full_range,
-        forbid_absorption, components, comp_offset_min, comp_offset_max, delta_comp_offset,
-        save_line_models, chi2_cor, use_aic, aic_penalty, xmin, xmax, lyalpha_width_max,
-        use_nn_solver, save_rescaling
+        residual_rescale_global, mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"),
+        full_range, forbid_absorption, components, comp_offset_min, comp_offset_max,
+        delta_comp_offset, save_line_models, chi2_cor, use_aic, aic_penalty, xmin, xmax,
+        lyalpha_width_max, use_nn_solver, save_rescaling
     ));
 
     // Check validity of input and create output directories if needed
@@ -358,9 +359,10 @@ int vif_main(int argc, char* argv[]) {
                 allow_offsets = false;
             }
 
-            if (residual_rescale) {
-                note("no line selected, 'residual_rescale' has no effect");
-                residual_rescale = true;
+            if (residual_rescale && !residual_rescale_global) {
+                warning("no line selected, 'residual_rescale' will use a global rescaling");
+                warning("specify the 'residual_rescale_global' option to silence this warning");
+                residual_rescale_global = true;
             }
 
             if (forbid_absorption) {
@@ -862,8 +864,9 @@ int vif_main(int argc, char* argv[]) {
     }
 
     // Perform a redshift search
+    double spectrum_resolution = mean(lam)/min_cdelt;
     if (verbose) {
-        note("best resolution of spectrum: R=", mean(lam)/min_cdelt);
+        note("best resolution of spectrum: R=", spectrum_resolution);
         note(use_mpfit ? "non-linear" : "linear", " redshift search");
         note(" - ", nz, " redshifts, step = ", z_grid[1] - z_grid[0]);
 
@@ -889,6 +892,17 @@ int vif_main(int argc, char* argv[]) {
             note(" - ", ncoffset, " component offsets, step = ",
                 comp_offset_grid[1] - comp_offset_grid[0], " km/s");
         }
+    }
+
+    std::size_t min_rescale_elements = 10;
+    double min_rescale_cont_width = min_rescale_elements*2.99792e5/spectrum_resolution;
+    if (residual_rescale && !residual_rescale_global && local_continuum_width < min_rescale_cont_width) {
+        warning("'local_continuum_width' is too small to allow enough data points to compute the local RMS for 'residual_rescale'");
+        warning("please increase 'local_continuum_width' to at least ", round(min_rescale_cont_width), " km/s (preferrably ",
+            round(5*min_rescale_cont_width), " km/s)");
+        warning("'residual_rescale' will use a global rescaling instead");
+        warning("alternatively, specify the 'residual_rescale_global' option to silence this warning");
+        residual_rescale_global = true;
     }
 
     // Renormalize flux and errors in units of 1e-17 erg/s/cm2/A to avoid
@@ -1625,58 +1639,87 @@ int vif_main(int argc, char* argv[]) {
         // Make residual spectrum
         vec1d resi = (flx - best_fit.model)/err;
 
-        vec1d rescale = replicate(dnan, lines.size());
-        vec1d rlam(lines.size());
-        for (uint_t il : range(lines)) {
-            // Find spectral elements of the continuum around that line
-            vec1u idg = where(
-                lam >= (best_fit.lambda[il]/lines[il].lambda[0])*lines[il].continuum_lmin &&
-                lam <= (best_fit.lambda[il]/lines[il].lambda[0])*lines[il].continuum_lmax &&
-                is_finite(resi)
-            );
-
-            if (idg.size() < 10) continue; // not enough valid data points
-
-            rescale[il] = max(1.0, 1.48*mad(resi[idg]));
-            best_fit.flux_err[il]   *= rescale[il];
-            best_fit.width_err[il]  *= rescale[il];
-            best_fit.offset_err[il] *= rescale[il];
-            best_fit.lambda_err[il] *= rescale[il];
-            best_fit.ew_err[il]     *= rescale[il];
-            best_fit.cont_err[il]   *= rescale[il];
-            rlam[il] = mean(lines[il].lambda)*(1.0 + best_fit.z);
-        }
-
-        // For lines that had too few valid data points to estimate RMS, assume the worst
-        vec1u idff = where(is_finite(rescale));
         vec1d err_rescale;
-        if (!idff.empty()) {
-            rescale[where(!is_finite(rescale))] = max(rescale[idff]);
+        if (residual_rescale_global) {
+            // Use global residual RMS
+            vec1u idg = where(is_finite(resi));
 
-            // Rescale whole error spectrum
-            if (lines.size() > 1) {
-                vec1u ids = sort(rlam); rlam = rlam[ids]; rescale = rescale[ids];
-                err_rescale = interpolate(rescale, rlam, lam);
-                err_rescale[where(lam < min(rlam))] = rescale.front();
-                err_rescale[where(lam > max(rlam))] = rescale.back();
+            if (idg.size() >= min_rescale_elements) {
+                double rescale = max(1.0, 1.48*mad(resi[idg]));
+                err_rescale = replicate(rescale, flx.size());
+
+                if (verbose) {
+                    note("rescaling uncertainties from global residual (", rescale, ")");
+                    note("fitting again...");
+                }
             } else {
-                err_rescale = replicate(rescale[0], err.size());
+                warning("could not rescale uncertainties from global residuals as not enough valid data was available");
+                err_rescale = replicate(1.0, flx.dims);
+            }
+        } else {
+            // Use local residual RMS
+            vec1d rescale = replicate(dnan, lines.size());
+            vec1d rlam(lines.size());
+            for (uint_t il : range(lines)) {
+                // Find spectral elements of the continuum around that line
+                vec1u idg = where(
+                    lam >= (best_fit.lambda[il]/lines[il].lambda[0])*lines[il].continuum_lmin &&
+                    lam <= (best_fit.lambda[il]/lines[il].lambda[0])*lines[il].continuum_lmax &&
+                    is_finite(resi)
+                );
+
+                if (idg.size() < min_rescale_elements) continue; // not enough valid data points
+
+                rescale[il] = max(1.0, 1.48*mad(resi[idg]));
+                rlam[il] = mean(lines[il].lambda)*(1.0 + best_fit.z);
             }
 
-            err *= err_rescale;
+            // For lines that had too few valid data points to estimate RMS, assume the worst
+            vec1u idff = where(is_finite(rescale));
+            if (!idff.empty()) {
+                rescale[where(!is_finite(rescale))] = max(rescale[idff]);
 
-            if (verbose) {
-                note("rescaling uncertainties from residual (min=", min(err_rescale), ", max=", max(err_rescale), ")");
-                note("fitting again...");
+                // Rescale whole error spectrum
+                if (lines.size() > 1) {
+                    vec1u ids = sort(rlam); rlam = rlam[ids]; rescale = rescale[ids];
+                    err_rescale = interpolate(rescale, rlam, lam);
+                    err_rescale[where(lam < min(rlam))] = rescale.front();
+                    err_rescale[where(lam > max(rlam))] = rescale.back();
+                } else {
+                    err_rescale = replicate(rescale[0], err.size());
+                }
+
+                if (verbose) {
+                    note("rescaling uncertainties from residual (min=", min(err_rescale), ", max=", max(err_rescale), ")");
+                    note("fitting again...");
+                }
+            } else {
+                warning("could not rescale uncertainties from line residuals as not enough valid data was available;");
+                warning("there may not be enough lines in the spectral range covered at the best fit redshift,");
+                warning("or the 'local_continuum_width' is too small -- 'residual_rescale' disabled");
+                warning("try re-running with 'residual_rescale_global' to use a global rescaling instead");
+                err_rescale = replicate(1.0, flx.dims);
             }
-
-            // Remove offsets for lines that went below the SNR threshold
-            best_fit.offset[where(abs(best_fit.flux/best_fit.flux_err) < offset_snr_min)] = 0;
-            best_fit.offset_err[where(abs(best_fit.flux/best_fit.flux_err) < offset_snr_min)] = 0;
-
-            // Enable second pass fitting
-            force_second_pass = true;
         }
+
+        err *= err_rescale;
+
+        for (uint_t il : range(lines)) {
+            double rescale = interpolate(err_rescale, lam, best_fit.lambda[il]);
+            best_fit.flux_err[il]   *= rescale;
+            best_fit.width_err[il]  *= rescale;
+            best_fit.offset_err[il] *= rescale;
+            best_fit.lambda_err[il] *= rescale;
+            best_fit.ew_err[il]     *= rescale;
+            best_fit.cont_err[il]   *= rescale;
+        }
+
+        // Remove offsets for lines that went below the SNR threshold
+        best_fit.offset[where(abs(best_fit.flux/best_fit.flux_err) < offset_snr_min)] = 0;
+        best_fit.offset_err[where(abs(best_fit.flux/best_fit.flux_err) < offset_snr_min)] = 0;
+
+        // Enable second pass fitting
+        force_second_pass = count(err_rescale != 1.0) > 0;
 
         if (save_rescaling) {
             vec1d brescale = reshape(err_rescale, idl, orig_nlam, dnan);
@@ -2234,11 +2277,16 @@ void print_help(const std::map<std::string,line_t>& db) {
     bullet("residual_rescale", "Set this flag to renormalize the uncertainties based on "
         "the residual of the spectrum after subtracting the best-fit lines and continuum "
         "models. This allows to cope for underestimated error spectrum. For each line, "
-        "the local RMS of the residual is computed and compared to the expected RMS from "
+        "the local RMS of the residual is computed within the window defined in "
+        "'local_continuum_width', and this RMS is compared to the expected RMS from "
         "the error spectrum. The uncertainties are rescaled by the ratio of the two (only "
         "if larger than 1, so that errors cannot be reduced). Then, the whole error spectrum "
         "is renormalized accordingly by interpolating between the rescaling factor of the "
         "lines, and the whole fit is performed a second time in a second pass.");
+    bullet("residual_rescale_global", "Set this flag to force 'residual_rescale' to use a global "
+        "rescaling factor, rather than attempt to compute a line-local rescaling. This is "
+        "recommended for spectra that have few or no lines, or spectra with very coarse spectral "
+        "resolution.");
     bullet("mc_errors", "Set this flag to estimate uncertainties on each fitted quantity "
         "by repeatedly and randomly perturbing the spectrum according to the error spectrum "
         "and re-doing the fit each time (\"Monte Carlo\" uncertainties). The uncertainties "
