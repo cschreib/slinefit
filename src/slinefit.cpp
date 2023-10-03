@@ -195,9 +195,33 @@ double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, 
     return res;
 }
 
-// Check if a filter overlaps with a given wavelength range
-bool filter_overlap(const astro::filter_t& flt, double lmin, double lmax) {
-    return flt.lam.back() >= lmin && flt.lam.front() <= lmax;
+// Find the lower/upper bound in the spectral data that covers a given wavelength range
+std::array<uint_t,2> bounds_filter(const vec1d& llow, const vec1d& lup, double l0, double l1) {
+    std::array<uint_t,2> res;
+
+    if (llow.empty()) {
+        res[0] = npos;
+        res[1] = npos;
+    } else {
+        auto iter = std::upper_bound(llow.data.begin(), llow.data.end(), l0, vec1d::comparator_less());
+
+        if (iter == llow.data.begin()) {
+            res[0] = npos;
+        } else {
+            res[0] = iter - llow.data.begin() - 1;
+        }
+
+        iter = lup.data.begin() + (iter - llow.data.begin());
+        iter = std::upper_bound(iter, lup.data.end(), l1, vec1d::comparator_less());
+
+        if (iter == lup.data.end()) {
+            res[1] = npos;
+        } else {
+            res[1] = iter - lup.data.begin();
+        }
+    }
+
+    return res;
 }
 
 // Local functions, defined at the end of the file
@@ -817,6 +841,22 @@ int vif_main(int argc, char* argv[]) {
     filters = filters[idl];
     goodspec_flag = goodspec_flag[idl];
 
+    vec1d lfmin(lam.size());
+    vec1d lfmax(lam.size());
+    {
+        vec1d llow(lam.size());
+        vec1d lup(lam.size());
+        for (uint_t i : range(lam)) {
+            llow[i] = filters[i].lam.front();
+            lup[i] = filters[i].lam.back();
+        }
+
+        for (uint_t i : range(lam)) {
+            lfmin[i] = min(llow[i-_]);
+            lfmax[i] = max(lup[_-i]);
+        }
+    }
+
     // Define redshift grid so as to have the requested number of samples per wavelength element
     double tdz = delta_z*min_cdelt/mean(lam);
     uint_t nz = 2*ceil(dz/tdz)+1;
@@ -1065,12 +1105,15 @@ int vif_main(int argc, char* argv[]) {
         // -----------------------------------------------------------------
         auto try_nlfit = [&](double tz, double& gchi2) {
             struct lam_t {
-                lam_t(vec1d tl, vec1d tu) : ll(std::move(tl)), lu(std::move(tu)) {}
+                lam_t(vec1d tl, vec1d tu, vec<1,astro::filter_t> tf) :
+                    ll(std::move(tl)), lu(std::move(tu)), lf(std::move(tf)) {}
+
                 vec1d ll, lu;
+                vec<1,astro::filter_t> lf;
             };
 
-            auto model = [&](const vec<1,astro::filter_t>& l, const vec1d& tp, uint_t only_line = npos) {
-                vec1d m = replicate(0.0, l.dims);
+            auto model = [&](const lam_t& l, const vec1d& tp, uint_t only_line = npos) {
+                vec1d m(l.ll.dims);
                 for (uint_t il : range(lines)) {
                     if (only_line != npos && only_line != il) continue;
 
@@ -1081,26 +1124,19 @@ int vif_main(int argc, char* argv[]) {
                         }
                     }
 
-                    double dv = tp[id_offset[il]] + tp[id_comp_offset[lines[il].component]];
-                    double lw_max = (tp[id_width[il]]/2.99792e5)*max(lines[il].lambda)*(1.0+tz);
-                    double l0_max = max(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
-                    double l0_min = min(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
+                    for (uint_t isl : range(lines[il].lambda)) {
+                        double lw = (tp[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
+                        double dv = tp[id_offset[il]] + tp[id_comp_offset[lines[il].component]];
+                        double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
+                        double amp = 1e-4*lines[il].ratio[isl]*tp[id_amp[il]];
 
-                    double lmin = l0_min-5*lw_max;
-                    double lmax = l0_max+5*lw_max;
-
-                    for (uint_t ll : range(filters)) {
-                        const auto& flt = filters.safe[ll];
-                        if (!filter_overlap(flt, lmin, lmax)) {
-                            continue;
-                        }
-
-                        for (uint_t isl : range(lines[il].lambda)) {
-                            double lw = (tp[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
-                            double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
-                            double amp = 1e-4*lines[il].ratio[isl]*tp[id_amp[il]];
-
-                            m.safe[ll] += integrate_gauss_filter(flt, l0, lw, amp);
+                        auto bl = bounds_filter(l.ll, l.lu, l0-5*lw, l0+5*lw);
+                        if (bl[0] == npos) bl[0] = 0;
+                        if (bl[1] == npos) bl[1] = l.ll.size();
+                        for (uint_t ll : range(bl[0], bl[1])) {
+                            m.safe[ll] += integrate_gauss_filter(
+                                l.lf.safe[ll], l0, lw, amp
+                            );
                         }
                     }
                 }
@@ -1123,11 +1159,12 @@ int vif_main(int argc, char* argv[]) {
             opts.lower_limit = p_min;
             opts.frozen      = p_fixed;
 
-            mpfit_result res = mpfitfun(tflx, terr, filters, model, p, opts);
+            lam_t lt{lfmin, lfmax, filters};
+            mpfit_result res = mpfitfun(tflx, terr, lt, model, p, opts);
 
             if (!use_global_chi2) {
                 // Compute local chi2 (only counting pixels around the lines, not the continuum)
-                vec1d tmodel = model(filters, res.params);
+                vec1d tmodel = model(lt, res.params);
                 res.chi2 = total(sqr((tflx[id_chi2] - tmodel[id_chi2])/terr[id_chi2]));
             }
 
@@ -1151,14 +1188,14 @@ int vif_main(int argc, char* argv[]) {
                 fres.comp_offset     = res.params[id_comp_offset];
                 fres.comp_offset_err = res.errors[id_comp_offset];
 
-                fres.model = model(filters, res.params);
+                fres.model = model(lt, res.params);
                 vec1d tp = res.params; tp[id_amp] = 0;
-                fres.model_continuum = model(filters, tp);
+                fres.model_continuum = model(lt, tp);
 
                 if (!fres.no_models) {
                     fres.models = vec2d(lines.size(), fres.model.size());
                     for (uint_t il : range(lines)) {
-                        fres.models(il,_) = model(filters, tp, il);
+                        fres.models(il,_) = model(lt, tp, il);
                     }
                 }
             }
@@ -1173,6 +1210,7 @@ int vif_main(int argc, char* argv[]) {
 
         // Reusable arrays for linear fit
         vec2d m;
+
         if (!use_mpfit) {
             m.resize(nmodel, lam.dims);
         }
@@ -1209,36 +1247,25 @@ int vif_main(int argc, char* argv[]) {
                 double l0_max = max(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
                 double l0_min = min(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
 
-                double lmin = l0_min-5*lw_max;
-                double lmax = l0_max+5*lw_max;
+                auto bl = bounds_filter(lfmin, lfmax, l0_min-5*lw_max, l0_max+5*lw_max);
+                if (bl[0] == npos) bl[0] = 0;
+                if (bl[1] == npos) bl[1] = lam.size();
 
                 uint_t iml = id_mline[il];
+                model_start[iml] = bl[0];
+                model_end[iml] = bl[1];
 
-                bool overlap_found = false;
-                model_start[iml] = lam.size();
-                model_end[iml] = lam.size();
-
-                for (uint_t ll : range(filters)) {
+                for (uint_t ll : range(bl[0], bl[1])) {
                     m.safe(iml,ll) = 0.0;
+                }
 
-                    const auto& flt = filters.safe[ll];
-                    if (!filter_overlap(flt, lmin, lmax)) {
-                        continue;
-                    }
+                for (uint_t isl : range(lines[il].lambda)) {
+                    double lw = (p[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
+                    double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
+                    double amp = 1e-4*lines[il].ratio[isl];
 
-                    if (!overlap_found) {
-                        model_start[iml] = ll;
-                        overlap_found = true;
-                    }
-
-                    model_end[iml] = ll + 1;
-
-                    for (uint_t isl : range(lines[il].lambda)) {
-                        double lw = (p[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
-                        double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
-                        double amp = 1e-4*lines[il].ratio[isl];
-
-                        m.safe(iml,ll) += integrate_gauss_filter(flt, l0, lw, amp);
+                    for (uint_t ll : range(bl[0], bl[1])) {
+                        m.safe(iml,ll) += integrate_gauss_filter(filters.safe[ll], l0, lw, amp);
                     }
                 }
             }
