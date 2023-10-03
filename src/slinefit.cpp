@@ -3,7 +3,7 @@
 
 using namespace vif;
 
-const std::string SLINEFIT_VERSION = "2.1";
+const std::string SLINEFIT_VERSION = "2.2";
 
 // Structure to define a line or line group to be fitted simultaneously
 struct line_t {
@@ -173,10 +173,20 @@ vec1b keep_gaps_and_expand(vec1b flags, uint_t mincount, uint_t padding) {
 
 // Integrate a gaussian line through a filter
 double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, double amp) {
+    // Integrated flux within the filter 'flt' of:
+    // amp*exp(-sqr(t - xc)/(2.0*sqr(xw)))/(sqrt(2*dpi)*xw)
+
     // TODO: optimize me with an analytic integration
     vec1d llam = rgen(xc - 5*xw, xc + 5*xw, 31);
-    vec1d lflx = amp*exp(-sqr(llam - xc)/(2.0*sqr(xw)));
-    return astro::sed2flux(flt.lam, flt.res, llam, lflx);
+    if (llam.front() > flt.lam.front()) {
+        prepend(llam, {flt.lam.front()*0.999});
+    }
+    if (llam.back() < flt.lam.back()) {
+        llam.push_back(flt.lam.back()*1.001);
+    }
+
+    vec1d lflx = exp(-sqr(llam - xc)/(2.0*sqr(xw)));
+    return amp*astro::sed2flux(flt, llam, lflx)/(sqrt(2*dpi)*xw);
 }
 
 // Check if a filter overlaps with a given wavelength range
@@ -669,7 +679,7 @@ int vif_main(int argc, char* argv[]) {
                 flt.res = replicate(0.0, flt.lam.size());
             }
 
-            tfilters.push_back(flt);
+            tfilters[il] = flt;
         }
 
         // Compute average CDELT
@@ -1158,7 +1168,7 @@ int vif_main(int argc, char* argv[]) {
         // Reusable arrays for linear fit
         vec2d m;
         if (!use_mpfit) {
-            m = replicate(0.0, nmodel, lam.dims);
+            m.resize(nmodel, lam.dims);
         }
 
         // Function to perform a linear fit (fixed line widths)
