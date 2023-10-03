@@ -176,17 +176,23 @@ double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, 
     // Integrated flux within the filter 'flt' of:
     // amp*exp(-sqr(t - xc)/(2.0*sqr(xw)))/(sqrt(2*dpi)*xw)
 
-    // TODO: optimize me with an analytic integration
-    vec1d llam = rgen(xc - 5*xw, xc + 5*xw, 31);
-    if (llam.front() > flt.lam.front()) {
-        prepend(llam, {flt.lam.front()*0.999});
-    }
-    if (llam.back() < flt.lam.back()) {
-        llam.push_back(flt.lam.back()*1.001);
+    double xw2 = 2*sqr(xw);
+    double aw = amp/(sqrt(2*dpi)*xw);
+
+    double res = 0.0;
+    for (uint_t i : range(1, flt.lam.size())) {
+        double l0 = flt.lam.safe[i-1];
+        double l1 = flt.lam.safe[i];
+        double dl = l1 - l0;
+
+        double m = (flt.res.safe[i] - flt.res.safe[i-1])/dl;
+        double o = flt.res.safe[i-1];
+
+        res += (m*xc + o)*dl*integrate_gauss(l0, l1, xc, xw, amp)
+          + (m*aw)*(exp(-sqr(l0 - xc)/xw2) - exp(-sqr(l1 - xc)/xw2));
     }
 
-    vec1d lflx = exp(-sqr(llam - xc)/(2.0*sqr(xw)));
-    return amp*astro::sed2flux(flt, llam, lflx)/(sqrt(2*dpi)*xw);
+    return res;
 }
 
 // Check if a filter overlaps with a given wavelength range
