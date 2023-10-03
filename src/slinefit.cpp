@@ -171,6 +171,19 @@ vec1b keep_gaps_and_expand(vec1b flags, uint_t mincount, uint_t padding) {
     return flags;
 }
 
+// Integrate a gaussian line through a filter
+double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, double amp) {
+    // TODO: optimize me with an analytic integration
+    vec1d llam = rgen(xc - 5*xw, xc + 5*xw, 31);
+    vec1d lflx = amp*exp(-sqr(llam - xc)/(2.0*sqr(xw)));
+    return astro::sed2flux(flt.lam, flt.res, llam, lflx);
+}
+
+// Check if a filter overlaps with a given wavelength range
+bool filter_overlap(const astro::filter_t& flt, double lmin, double lmax) {
+    return flt.lam.back() >= lmin && flt.lam.front() <= lmax;
+}
+
 // Local functions, defined at the end of the file
 void print_help(const std::map<std::string,line_t>& db);
 void print_available_lines(const std::map<std::string,line_t>& db);
@@ -495,7 +508,8 @@ int vif_main(int argc, char* argv[]) {
     if (verbose) note("read input spectrum...");
 
     vec1d flx, err;
-    vec1d lam, laml, lamu;
+    vec1d lam;
+    vec<1,astro::filter_t> filters;
     vec1b goodspec, goodspec_flag;
 
     vec1s spec_file;
@@ -641,6 +655,23 @@ int vif_main(int argc, char* argv[]) {
             terr = reverse(terr);
         }
 
+        // Construct synthetic filter for each spectral element
+        vec<1,astro::filter_t> tfilters(tlam.size());
+        for (uint_t il : range(tlam)) {
+            astro::filter_t flt;
+            flt.rlam = tlam[il];
+            flt.lam = vec1d({tlaml[il], tlamu[il]});
+            flt.res = vec1d({1.0, 1.0});
+            flt.res /= integrate(flt.lam, flt.res);
+            if (count(!is_finite(flt.res)) > 0) {
+                warning("synthetic filter for spectral data (wavelength ", tlaml[il], " to ",
+                    tlamu[il], " um) has zero or invalid througput; ignored");
+                flt.res = replicate(0.0, flt.lam.size());
+            }
+
+            tfilters.push_back(flt);
+        }
+
         // Compute average CDELT
         min_cdelt = min(min_cdelt, median(tlamu-tlaml));
 
@@ -692,8 +723,7 @@ int vif_main(int argc, char* argv[]) {
         append(flx, tflx);
         append(err, terr);
         append(lam, tlam);
-        append(laml, tlaml);
-        append(lamu, tlamu);
+        append(filters, tfilters);
         append(goodspec, tgoodspec);
         append(goodspec_flag, tgoodspec_flag);
 
@@ -768,8 +798,7 @@ int vif_main(int argc, char* argv[]) {
     flx = flx[idl];
     err = err[idl];
     lam = lam[idl];
-    laml = laml[idl];
-    lamu = lamu[idl];
+    filters = filters[idl];
     goodspec_flag = goodspec_flag[idl];
 
     // Define redshift grid so as to have the requested number of samples per wavelength element
@@ -1024,8 +1053,8 @@ int vif_main(int argc, char* argv[]) {
                 vec1d ll, lu;
             };
 
-            auto model = [&](const lam_t& l, const vec1d& tp, uint_t only_line = npos) {
-                vec1d m(l.ll.dims);
+            auto model = [&](const vec<1,astro::filter_t>& l, const vec1d& tp, uint_t only_line = npos) {
+                vec1d m = replicate(0.0, l.dims);
                 for (uint_t il : range(lines)) {
                     if (only_line != npos && only_line != il) continue;
 
@@ -1036,19 +1065,26 @@ int vif_main(int argc, char* argv[]) {
                         }
                     }
 
-                    for (uint_t isl : range(lines[il].lambda)) {
-                        double lw = (tp[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
-                        double dv = tp[id_offset[il]] + tp[id_comp_offset[lines[il].component]];
-                        double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
-                        double amp = 1e-4*lines[il].ratio[isl]*tp[id_amp[il]];
+                    double dv = tp[id_offset[il]] + tp[id_comp_offset[lines[il].component]];
+                    double lw_max = (tp[id_width[il]]/2.99792e5)*max(lines[il].lambda)*(1.0+tz);
+                    double l0_max = max(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
+                    double l0_min = min(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
 
-                        auto bl = bounds(l.ll, l0-5*lw, l0+5*lw);
-                        if (bl[0] == npos) bl[0] = 0;
-                        if (bl[1] == npos) bl[1] = l.ll.size();
-                        for (uint_t ll : range(bl[0], bl[1])) {
-                            m.safe[ll] += integrate_gauss(
-                                l.ll.safe[ll], l.lu.safe[ll], l0, lw, amp
-                            );
+                    double lmin = l0_min-5*lw_max;
+                    double lmax = l0_max+5*lw_max;
+
+                    for (uint_t ll : range(filters)) {
+                        const auto& flt = filters.safe[ll];
+                        if (!filter_overlap(flt, lmin, lmax)) {
+                            continue;
+                        }
+
+                        for (uint_t isl : range(lines[il].lambda)) {
+                            double lw = (tp[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
+                            double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
+                            double amp = 1e-4*lines[il].ratio[isl]*tp[id_amp[il]];
+
+                            m.safe[ll] += integrate_gauss_filter(flt, l0, lw, amp);
                         }
                     }
                 }
@@ -1071,12 +1107,11 @@ int vif_main(int argc, char* argv[]) {
             opts.lower_limit = p_min;
             opts.frozen      = p_fixed;
 
-            lam_t lt{laml, lamu};
-            mpfit_result res = mpfitfun(tflx, terr, lt, model, p, opts);
+            mpfit_result res = mpfitfun(tflx, terr, filters, model, p, opts);
 
             if (!use_global_chi2) {
                 // Compute local chi2 (only counting pixels around the lines, not the continuum)
-                vec1d tmodel = model(lt, res.params);
+                vec1d tmodel = model(filters, res.params);
                 res.chi2 = total(sqr((tflx[id_chi2] - tmodel[id_chi2])/terr[id_chi2]));
             }
 
@@ -1100,14 +1135,14 @@ int vif_main(int argc, char* argv[]) {
                 fres.comp_offset     = res.params[id_comp_offset];
                 fres.comp_offset_err = res.errors[id_comp_offset];
 
-                fres.model = model(lt, res.params);
+                fres.model = model(filters, res.params);
                 vec1d tp = res.params; tp[id_amp] = 0;
-                fres.model_continuum = model(lt, tp);
+                fres.model_continuum = model(filters, tp);
 
                 if (!fres.no_models) {
                     fres.models = vec2d(lines.size(), fres.model.size());
                     for (uint_t il : range(lines)) {
-                        fres.models(il,_) = model(lt, tp, il);
+                        fres.models(il,_) = model(filters, tp, il);
                     }
                 }
             }
@@ -1122,9 +1157,8 @@ int vif_main(int argc, char* argv[]) {
 
         // Reusable arrays for linear fit
         vec2d m;
-
         if (!use_mpfit) {
-            m.resize(nmodel, lam.dims);
+            m = replicate(0.0, nmodel, lam.dims);
         }
 
         // Function to perform a linear fit (fixed line widths)
@@ -1159,26 +1193,36 @@ int vif_main(int argc, char* argv[]) {
                 double l0_max = max(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
                 double l0_min = min(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
 
-                auto bl = bounds(lam, l0_min-5*lw_max, l0_max+5*lw_max);
-                if (bl[0] == npos) bl[0] = 0;
-                if (bl[1] == npos) bl[1] = lam.size();
+                double lmin = l0_min-5*lw_max;
+                double lmax = l0_max+5*lw_max;
 
                 uint_t iml = id_mline[il];
-                model_start[iml] = bl[0];
-                model_end[iml] = bl[1];
 
-                for (uint_t ll : range(bl[0], bl[1])) {
+                bool overlap_found = false;
+                model_start[iml] = lam.size();
+                model_end[iml] = lam.size();
+
+                for (uint_t ll : range(filters)) {
                     m.safe(iml,ll) = 0.0;
-                }
 
-                for (uint_t isl : range(lines[il].lambda)) {
-                    double lw = (p[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
-                    double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
-                    double amp = 1e-4*lines[il].ratio[isl];
+                    const auto& flt = filters.safe[ll];
+                    if (!filter_overlap(flt, lmin, lmax)) {
+                        continue;
+                    }
 
-                    for (uint_t ll : range(bl[0], bl[1])) {
-                        m.safe(iml,ll) +=
-                            integrate_gauss(laml.safe[ll], lamu.safe[ll], l0, lw, amp);
+                    if (!overlap_found) {
+                        model_start[iml] = ll;
+                        overlap_found = true;
+                    }
+
+                    model_end[iml] = ll + 1;
+
+                    for (uint_t isl : range(lines[il].lambda)) {
+                        double lw = (p[id_width[il]]/2.99792e5)*lines[il].lambda[isl]*(1.0+tz);
+                        double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
+                        double amp = 1e-4*lines[il].ratio[isl];
+
+                        m.safe(iml,ll) += integrate_gauss_filter(flt, l0, lw, amp);
                     }
                 }
             }
@@ -1439,7 +1483,16 @@ int vif_main(int argc, char* argv[]) {
                 auto& ttflx = tpl_flux[it];
 
                 vec1d tlam = tpl.lam*(1.0 + tz);
-                ttflx = interpolate(tpl.sed, tlam, lam);
+                ttflx.resize(lam.size());
+
+                for (uint_t il : range(lam)) {
+                    ttflx.safe[il] = astro::sed2flux(
+                        filters.safe[il].lam, filters.safe[il].res,
+                        tlam, tpl.sed
+                    );
+                }
+
+                // If input spectrum goes out of model coverage, assume zero
                 ttflx[where(!is_finite(ttflx) || lam > max(tlam) || lam < min(tlam))] = 0.0;
 
                 if (!use_mpfit) {
