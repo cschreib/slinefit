@@ -618,6 +618,13 @@ int vif_main(int argc, char* argv[]) {
             xaxisu = xaxis + 0.5*cdelt;
         }
 
+        if (tlog_axis) {
+            // De-log the axis if needed
+            xaxis = e10(xaxis);
+            xaxisl = e10(xaxisl);
+            xaxisu = e10(xaxisu);
+        }
+
         // Handle wavelength axis units
         bool tfrequency = false;
         std::string cunit; {
@@ -670,13 +677,6 @@ int vif_main(int argc, char* argv[]) {
             if (tfrequency != frequency) {
                 warning("mixing together spectra in wavelength and frequency units (is this intended?)");
             }
-        }
-
-        if (tlog_axis) {
-            // De-log the axis if needed
-            xaxis = e10(xaxis);
-            xaxisl = e10(xaxisl);
-            xaxisu = e10(xaxisu);
         }
 
         // Make sure we're working with wavelengths
