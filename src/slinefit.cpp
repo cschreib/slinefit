@@ -350,6 +350,7 @@ int vif_main(int argc, char* argv[]) {
     uint_t tseed = 42;
     uint_t flux_hdu = 1;
     uint_t error_hdu = 2;
+    uint_t lsf_hdu = npos;
     bool use_aic = false;
     double aic_penalty = 2.0;
     double chi2_cor = 1.0;
@@ -360,7 +361,7 @@ int vif_main(int argc, char* argv[]) {
 
     read_args(argc-1, argv+1, arg_list(z0, dz, name(tlines, "lines"), width_min, width_max,
         verbose, same_width, save_model, fix_width, use_mpfit, ascii, outdir, delta_width,
-        delta_z, lambda_pad, local_continuum, local_continuum_width, flux_hdu, error_hdu,
+        delta_z, lambda_pad, local_continuum, local_continuum_width, flux_hdu, error_hdu, lsf_hdu,
         fit_continuum_template, template_dir, use_global_chi2, odds_dz,
         allow_offsets, offset_max, offset_snr_min, delta_offset, residual_rescale,
         residual_rescale_global, mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"),
@@ -564,10 +565,29 @@ int vif_main(int argc, char* argv[]) {
     auto read_spectrum = [&](std::string filename) {
         vec1d tflx, terr;
         fits::input_image fimg(filename);
+
+        // Read flux and error.
         fimg.reach_hdu(flux_hdu);
         fimg.read(tflx);
         fimg.reach_hdu(error_hdu);
         fimg.read(terr);
+
+        if (tflx.empty()) {
+            error("empty spectrum found in ", filename);
+            return false;
+        }
+
+        // Read LSF
+        vec1d tlsf;
+        if (lsf_hdu != npos) {
+            fimg.reach_hdu(lsf_hdu);
+            fimg.read(tlsf);
+
+            if (tflx.size() != tlsf.size()) {
+                error("different size for flux and LSF axis in ", filename);
+                return false;
+            }
+        }
 
         // Come back to flux HDU to make sure we read the WCS from there
         fimg.reach_hdu(flux_hdu);
@@ -693,21 +713,58 @@ int vif_main(int argc, char* argv[]) {
             tlamu = reverse(1e6*2.99792e8/xaxisl);
             tflx = reverse(tflx);
             terr = reverse(terr);
+            tlsf = reverse(tlsf);
+        }
+
+        if (tflx.size() != tlam.size()) {
+            error("different size for flux and wavelength axis in ", filename);
+            return false;
         }
 
         // Construct synthetic filter for each spectral element
         vec<1,astro::filter_t> tfilters(tlam.size());
         for (uint_t il : range(tlam)) {
             astro::filter_t flt;
-            flt.rlam = tlam[il];
-            flt.lam = vec1d({tlaml[il], tlamu[il]});
-            flt.res = vec1d({1.0, 1.0});
-            flt.res /= integrate(flt.lam, flt.res);
-            if (count(!is_finite(flt.res)) > 0) {
+
+            double lsf = 0.0;
+            if (!tlsf.empty()) {
+                lsf = tlsf[il];
+            }
+
+            if (lsf < 0) {
+                error("line spread function cannot be negative (around lambda=", tlam[il], " Angstroms)");
+                return false;
+            }
+
+            if (lsf == 0.0) {
+                // No LSF, just use the simplest tophat filter.
+                flt.rlam = tlam[il];
+                flt.lam = vec1d({tlaml[il], tlamu[il]});
+                flt.res = vec1d({1.0, 1.0});
+            } else {
+                double l0 = tlam[il];
+                double dl = tlamu[il] - tlaml[il];
+
+                // Increasing width by 7*lsf brings us reliably to ~ zero transmission.
+                double dll = dl + 7*lsf;
+                // 81 uniform samples provides a good sampling in all cases.
+                // Maximum error is when lsf >> dl, and reaches at most ~0.1%.
+                uint_t npt = 81;
+                vec1d l = rgen(l0-dll/2, l0+dll/2, npt);
+
+                flt.lam = l;
+                flt.res = 0.5*(erf((l0+dl/2-l)/(sqrt(2)*lsf)) - erf((l0-dl/2-l)/(sqrt(2)*lsf)));
+            }
+
+            double ttot = integrate(flt.lam, flt.res);
+
+            if (!is_finite(ttot)) {
                 warning("synthetic filter for spectral data (wavelength ", tlaml[il], " to ",
                     tlamu[il], " um) has zero or invalid througput; ignored");
                 flt.res = replicate(0.0, flt.lam.size());
             }
+
+            flt.res /= ttot;
 
             tfilters[il] = flt;
         }
@@ -2454,6 +2511,7 @@ void print_help(const std::map<std::string,line_t>& db) {
         "will be saved in '*_slfit_pz.cat'.");
     bullet("flux_hdu=...", "HDU index of the FITS extension containing the flux.");
     bullet("error_hdu=...", "HDU index of the FITS extension containing the uncertainty.");
+    bullet("lsf_hdu=...", "HDU index of the FITS extension containing the line spread function.");
     bullet("verbose", "Set this flag to print the progress of the detection process in "
         "the terminal. Can be useful if something goes wrong, or just to understand what "
         "is going on.");
