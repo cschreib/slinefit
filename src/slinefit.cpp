@@ -2509,9 +2509,14 @@ void print_help(const std::map<std::string,line_t>& db) {
         "format in addition to the default FITS tables. The lines and their fluxes will be "
         "saved in the '*_slfit_lines.cat' file, while the redshift probability distribution "
         "will be saved in '*_slfit_pz.cat'.");
-    bullet("flux_hdu=...", "HDU index of the FITS extension containing the flux.");
-    bullet("error_hdu=...", "HDU index of the FITS extension containing the uncertainty.");
-    bullet("lsf_hdu=...", "HDU index of the FITS extension containing the line spread function.");
+    bullet("flux_hdu=...", "HDU index (not name) of the FITS extension containing the flux, as a "
+        "1D image. Note that the primary HDU has index 0, so the first extension has index 1.");
+    bullet("error_hdu=...", "HDU index (not name) of the FITS extension containing the uncertainty "
+        "as a 1D image on the same wavelength/frequency grid as the flux. Note that the primary "
+        "HDU has index 0, so the first extension has index 1.");
+    bullet("lsf_hdu=...", "HDU index (not name) of the FITS extension containing the line spread "
+        "function, as 1D image on the same wavelength/frequency grid as the flux. Note that the "
+        "primary HDU has index 0, so the first extension has index 1.");
     bullet("verbose", "Set this flag to print the progress of the detection process in "
         "the terminal. Can be useful if something goes wrong, or just to understand what "
         "is going on.");
