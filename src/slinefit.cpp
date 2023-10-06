@@ -573,7 +573,8 @@ int vif_main(int argc, char* argv[]) {
         fimg.read(terr);
 
         if (tflx.empty()) {
-            error("empty spectrum found in ", filename);
+            error("reading ", filename);
+            error("empty spectrum");
             return false;
         }
 
@@ -584,7 +585,8 @@ int vif_main(int argc, char* argv[]) {
             fimg.read(tlsf);
 
             if (tflx.size() != tlsf.size()) {
-                error("different size for flux and LSF axis in ", filename);
+                error("reading ", filename);
+                error("different size for flux and LSF axis");
                 return false;
             }
         }
@@ -680,6 +682,7 @@ int vif_main(int argc, char* argv[]) {
                     tfrequency = true;
                     conv = 1e9;
                 } else {
+                    error("reading ", filename);
                     error("unrecognized wavelength/frequency unit '", cunit, "'");
                     return false;
                 }
@@ -695,6 +698,7 @@ int vif_main(int argc, char* argv[]) {
             first_spectrum = false;
         } else {
             if (tfrequency != frequency) {
+                warning("reading ", filename);
                 warning("mixing together spectra in wavelength and frequency units (is this intended?)");
             }
         }
@@ -717,7 +721,8 @@ int vif_main(int argc, char* argv[]) {
         }
 
         if (tflx.size() != tlam.size()) {
-            error("different size for flux and wavelength axis in ", filename);
+            error("reading ", filename);
+            error("different size for flux and wavelength axis");
             return false;
         }
 
@@ -732,6 +737,7 @@ int vif_main(int argc, char* argv[]) {
             }
 
             if (lsf < 0) {
+                error("reading ", filename);
                 error("line spread function cannot be negative (around lambda=", tlam[il], " Angstroms)");
                 return false;
             }
@@ -759,6 +765,7 @@ int vif_main(int argc, char* argv[]) {
             double ttot = integrate(flt.lam, flt.res);
 
             if (!is_finite(ttot)) {
+                warning("reading ", filename);
                 warning("synthetic filter for spectral data (wavelength ", tlaml[il], " to ",
                     tlamu[il], " um) has zero or invalid througput; ignored");
                 flt.res = replicate(0.0, flt.lam.size());
