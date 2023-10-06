@@ -100,6 +100,43 @@ vec<2,meta::rtype_t<T>> reshape2(const vec<2,T>& v, const vec1u& ids, uint_t n, 
     return nv;
 }
 
+bool read_unit(std::string unit, bool& frequency, double& conv) {
+    unit = to_lower(unit);
+
+    frequency = false;
+    conv = 1.0;
+
+    if (unit == "angstrom") {
+        conv = 1e-4;
+    } else if (unit == "nm") {
+        conv = 1e-3;
+    } else if (unit == "um" || unit == "micron") {
+        conv = 1.0;
+    } else if (unit == "mm") {
+        conv = 1e3;
+    } else if (unit == "cm") {
+        conv = 1e4;
+    } else if (unit == "m") {
+        conv = 1e6;
+    } else if (unit == "hz") {
+        frequency = true;
+        conv = 1.0;
+    } else if (unit == "khz") {
+        frequency = true;
+        conv = 1e3;
+    } else if (unit == "mhz") {
+        frequency = true;
+        conv = 1e6;
+    } else if (unit == "ghz") {
+        frequency = true;
+        conv = 1e9;
+    } else {
+        return false;
+    }
+
+    return true;
+}
+
 // Compute MC uncertainties from a set of repeated measurements given by function 'getp(i)'
 template <typename F>
 double get_mc_error(uint_t nmc, F&& getp) {
@@ -589,6 +626,23 @@ int vif_main(int argc, char* argv[]) {
                 error("different size for flux and LSF axis");
                 return false;
             }
+
+            std::string lsf_unit;
+            if (!fimg.read_keyword("BUNIT", lsf_unit)) {
+                error("reading ", filename);
+                error("could not find unit of LSF (missing BUNIT keyword)");
+                return false;
+            }
+
+            bool lsf_freq = false; // unused;
+            double lsf_conv = 1.0;
+            if (!read_unit(lsf_unit, lsf_freq, lsf_conv)) {
+                error("reading ", filename);
+                error("unrecognized wavelength/frequency unit for LSF '", lsf_unit, "'");
+                return false;
+            }
+
+            tlsf *= lsf_conv;
         }
 
         // Come back to flux HDU to make sure we read the WCS from there
@@ -655,33 +709,8 @@ int vif_main(int argc, char* argv[]) {
                 error("could not find unit of wavelength axis (missing CUNIT1 keyword)");
                 return false;
             } else {
-                cunit = to_lower(cunit);
                 double conv = 1.0;
-                if (cunit == "angstrom") {
-                    conv = 1e-4;
-                } else if (cunit == "nm") {
-                    conv = 1e-3;
-                } else if (cunit == "um" || cunit == "micron") {
-                    conv = 1.0;
-                } else if (cunit == "mm") {
-                    conv = 1e3;
-                } else if (cunit == "cm") {
-                    conv = 1e4;
-                } else if (cunit == "m") {
-                    conv = 1e6;
-                } else if (cunit == "hz") {
-                    tfrequency = true;
-                    conv = 1.0;
-                } else if (cunit == "khz") {
-                    tfrequency = true;
-                    conv = 1e3;
-                } else if (cunit == "mhz") {
-                    tfrequency = true;
-                    conv = 1e6;
-                } else if (cunit == "ghz") {
-                    tfrequency = true;
-                    conv = 1e9;
-                } else {
+                if (!read_unit(cunit, tfrequency, conv)) {
                     error("reading ", filename);
                     error("unrecognized wavelength/frequency unit '", cunit, "'");
                     return false;
@@ -2525,7 +2554,8 @@ void print_help(const std::map<std::string,line_t>& db) {
         "HDU has index 0, so the first extension has index 1.");
     bullet("lsf_hdu=...", "HDU index (not name) of the FITS extension containing the line spread "
         "function, as 1D image on the same wavelength/frequency grid as the flux. Note that the "
-        "primary HDU has index 0, so the first extension has index 1.");
+        "primary HDU has index 0, so the first extension has index 1. This HDU must include the "
+        "'BUNIT' keyword to specify the units of the LSF data.");
     bullet("verbose", "Set this flag to print the progress of the detection process in "
         "the terminal. Can be useful if something goes wrong, or just to understand what "
         "is going on.");
