@@ -726,6 +726,8 @@ int vif_main(int argc, char* argv[]) {
             return false;
         }
 
+        vec1b tgoodspec = is_finite(tflx) && is_finite(terr) && terr > 0;
+
         // Construct synthetic filter for each spectral element
         vec<1,astro::filter_t> tfilters(tlam.size());
         for (uint_t il : range(tlam)) {
@@ -769,9 +771,10 @@ int vif_main(int argc, char* argv[]) {
                 warning("synthetic filter for spectral data (wavelength ", tlaml[il], " to ",
                     tlamu[il], " um) has zero or invalid througput; ignored");
                 flt.res = replicate(0.0, flt.lam.size());
+                tgoodspec[il] = false;
+            } else {
+                flt.res /= ttot;
             }
-
-            flt.res /= ttot;
 
             tfilters[il] = flt;
         }
@@ -780,7 +783,6 @@ int vif_main(int argc, char* argv[]) {
         min_cdelt = min(min_cdelt, median(tlamu-tlaml));
 
         // Identify good regions of the spectrum
-        vec1b tgoodspec = is_finite(tflx) && is_finite(terr) && terr > 0;
         if (count(tgoodspec) <= lambda_pad*2) {
             error("reading ", filename);
             error("this spectrum does not contain any valid point");
