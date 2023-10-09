@@ -1,3 +1,19 @@
+v2.2
+====
+
+Bug fixes:
+ - The continuum templates were interpolated rather than integrated within the spectral elements.
+   This was only an issue when using data with very low spectral resolution.
+ - Spectra with wavelength axis in log units and unit other than Hz or um weren't converted
+   correctly.
+
+New features:
+ - Added the option 'lsf_hdu'. If set, this selects the FITS HDU from which to read the line spread
+   function of the spectrum. This will be used to broaden the synthetic passband of each spectral
+   element when fitting the models, using a gaussian of sigma equal to the specified value at each
+   wavelength.
+
+
 v2.1
 ====
 

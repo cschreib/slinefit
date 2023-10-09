@@ -3,7 +3,7 @@
 
 using namespace vif;
 
-const std::string SLINEFIT_VERSION = "2.1";
+const std::string SLINEFIT_VERSION = "2.2";
 
 // Structure to define a line or line group to be fitted simultaneously
 struct line_t {
@@ -100,6 +100,43 @@ vec<2,meta::rtype_t<T>> reshape2(const vec<2,T>& v, const vec1u& ids, uint_t n, 
     return nv;
 }
 
+bool read_unit(std::string unit, bool& frequency, double& conv) {
+    unit = to_lower(unit);
+
+    frequency = false;
+    conv = 1.0;
+
+    if (unit == "angstrom") {
+        conv = 1e-4;
+    } else if (unit == "nm") {
+        conv = 1e-3;
+    } else if (unit == "um" || unit == "micron") {
+        conv = 1.0;
+    } else if (unit == "mm") {
+        conv = 1e3;
+    } else if (unit == "cm") {
+        conv = 1e4;
+    } else if (unit == "m") {
+        conv = 1e6;
+    } else if (unit == "hz") {
+        frequency = true;
+        conv = 1.0;
+    } else if (unit == "khz") {
+        frequency = true;
+        conv = 1e3;
+    } else if (unit == "mhz") {
+        frequency = true;
+        conv = 1e6;
+    } else if (unit == "ghz") {
+        frequency = true;
+        conv = 1e9;
+    } else {
+        return false;
+    }
+
+    return true;
+}
+
 // Compute MC uncertainties from a set of repeated measurements given by function 'getp(i)'
 template <typename F>
 double get_mc_error(uint_t nmc, F&& getp) {
@@ -169,6 +206,59 @@ vec1b keep_gaps_and_expand(vec1b flags, uint_t mincount, uint_t padding) {
     }
 
     return flags;
+}
+
+// Integrate a gaussian line through a filter
+double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, double amp) {
+    // Integrated flux within the filter 'flt' of:
+    // amp*exp(-sqr(t - xc)/(2.0*sqr(xw)))/(sqrt(2*dpi)*xw)
+
+    double xw2 = 2*sqr(xw);
+    double aw = amp/(sqrt(2*dpi)*xw);
+
+    double res = 0.0;
+    for (uint_t i : range(1, flt.lam.size())) {
+        double l0 = flt.lam.safe[i-1];
+        double l1 = flt.lam.safe[i];
+        double dl = l1 - l0;
+
+        double m = (flt.res.safe[i] - flt.res.safe[i-1])/dl;
+        double o = flt.res.safe[i-1];
+
+        res += (m*xc + o)*dl*integrate_gauss(l0, l1, xc, xw, amp)
+          + (m*aw)*(exp(-sqr(l0 - xc)/xw2) - exp(-sqr(l1 - xc)/xw2));
+    }
+
+    return res;
+}
+
+// Find the lower/upper bound in the spectral data that covers a given wavelength range
+std::array<uint_t,2> bounds_filter(const vec1d& llow, const vec1d& lup, double l0, double l1) {
+    std::array<uint_t,2> res;
+
+    if (llow.empty()) {
+        res[0] = npos;
+        res[1] = npos;
+    } else {
+        auto iter = std::upper_bound(llow.data.begin(), llow.data.end(), l0, vec1d::comparator_less());
+
+        if (iter == llow.data.begin()) {
+            res[0] = npos;
+        } else {
+            res[0] = iter - llow.data.begin() - 1;
+        }
+
+        iter = lup.data.begin() + (iter - llow.data.begin());
+        iter = std::upper_bound(iter, lup.data.end(), l1, vec1d::comparator_less());
+
+        if (iter == lup.data.end()) {
+            res[1] = npos;
+        } else {
+            res[1] = iter - lup.data.begin();
+        }
+    }
+
+    return res;
 }
 
 // Local functions, defined at the end of the file
@@ -297,6 +387,7 @@ int vif_main(int argc, char* argv[]) {
     uint_t tseed = 42;
     uint_t flux_hdu = 1;
     uint_t error_hdu = 2;
+    uint_t lsf_hdu = npos;
     bool use_aic = false;
     double aic_penalty = 2.0;
     double chi2_cor = 1.0;
@@ -307,7 +398,7 @@ int vif_main(int argc, char* argv[]) {
 
     read_args(argc-1, argv+1, arg_list(z0, dz, name(tlines, "lines"), width_min, width_max,
         verbose, same_width, save_model, fix_width, use_mpfit, ascii, outdir, delta_width,
-        delta_z, lambda_pad, local_continuum, local_continuum_width, flux_hdu, error_hdu,
+        delta_z, lambda_pad, local_continuum, local_continuum_width, flux_hdu, error_hdu, lsf_hdu,
         fit_continuum_template, template_dir, use_global_chi2, odds_dz,
         allow_offsets, offset_max, offset_snr_min, delta_offset, residual_rescale,
         residual_rescale_global, mc_errors, num_mc, name(tseed, "seed"), name(nthread, "threads"),
@@ -495,7 +586,8 @@ int vif_main(int argc, char* argv[]) {
     if (verbose) note("read input spectrum...");
 
     vec1d flx, err;
-    vec1d lam, laml, lamu;
+    vec1d lam;
+    vec<1,astro::filter_t> filters;
     vec1b goodspec, goodspec_flag;
 
     vec1s spec_file;
@@ -510,10 +602,48 @@ int vif_main(int argc, char* argv[]) {
     auto read_spectrum = [&](std::string filename) {
         vec1d tflx, terr;
         fits::input_image fimg(filename);
+
+        // Read flux and error.
         fimg.reach_hdu(flux_hdu);
         fimg.read(tflx);
         fimg.reach_hdu(error_hdu);
         fimg.read(terr);
+
+        if (tflx.empty()) {
+            error("reading ", filename);
+            error("empty spectrum");
+            return false;
+        }
+
+        // Read LSF
+        vec1d tlsf;
+        if (lsf_hdu != npos) {
+            fimg.reach_hdu(lsf_hdu);
+            fimg.read(tlsf);
+
+            if (tflx.size() != tlsf.size()) {
+                error("reading ", filename);
+                error("different size for flux and LSF axis");
+                return false;
+            }
+
+            std::string lsf_unit;
+            if (!fimg.read_keyword("BUNIT", lsf_unit)) {
+                error("reading ", filename);
+                error("could not find unit of LSF (missing BUNIT keyword)");
+                return false;
+            }
+
+            bool lsf_freq = false; // unused;
+            double lsf_conv = 1.0;
+            if (!read_unit(lsf_unit, lsf_freq, lsf_conv)) {
+                error("reading ", filename);
+                error("unrecognized wavelength/frequency unit for LSF '", lsf_unit, "'");
+                return false;
+            }
+
+            tlsf *= lsf_conv;
+        }
 
         // Come back to flux HDU to make sure we read the WCS from there
         fimg.reach_hdu(flux_hdu);
@@ -564,6 +694,13 @@ int vif_main(int argc, char* argv[]) {
             xaxisu = xaxis + 0.5*cdelt;
         }
 
+        if (tlog_axis) {
+            // De-log the axis if needed
+            xaxis = e10(xaxis);
+            xaxisl = e10(xaxisl);
+            xaxisu = e10(xaxisu);
+        }
+
         // Handle wavelength axis units
         bool tfrequency = false;
         std::string cunit; {
@@ -572,33 +709,9 @@ int vif_main(int argc, char* argv[]) {
                 error("could not find unit of wavelength axis (missing CUNIT1 keyword)");
                 return false;
             } else {
-                cunit = to_lower(cunit);
                 double conv = 1.0;
-                if (cunit == "angstrom") {
-                    conv = 1e-4;
-                } else if (cunit == "nm") {
-                    conv = 1e-3;
-                } else if (cunit == "um" || cunit == "micron") {
-                    conv = 1.0;
-                } else if (cunit == "mm") {
-                    conv = 1e3;
-                } else if (cunit == "cm") {
-                    conv = 1e4;
-                } else if (cunit == "m") {
-                    conv = 1e6;
-                } else if (cunit == "hz") {
-                    tfrequency = true;
-                    conv = 1.0;
-                } else if (cunit == "khz") {
-                    tfrequency = true;
-                    conv = 1e3;
-                } else if (cunit == "mhz") {
-                    tfrequency = true;
-                    conv = 1e6;
-                } else if (cunit == "ghz") {
-                    tfrequency = true;
-                    conv = 1e9;
-                } else {
+                if (!read_unit(cunit, tfrequency, conv)) {
+                    error("reading ", filename);
                     error("unrecognized wavelength/frequency unit '", cunit, "'");
                     return false;
                 }
@@ -614,15 +727,9 @@ int vif_main(int argc, char* argv[]) {
             first_spectrum = false;
         } else {
             if (tfrequency != frequency) {
+                warning("reading ", filename);
                 warning("mixing together spectra in wavelength and frequency units (is this intended?)");
             }
-        }
-
-        if (tlog_axis) {
-            // De-log the axis if needed
-            xaxis = e10(xaxis);
-            xaxisl = e10(xaxisl);
-            xaxisu = e10(xaxisu);
         }
 
         // Make sure we're working with wavelengths
@@ -639,13 +746,72 @@ int vif_main(int argc, char* argv[]) {
             tlamu = reverse(1e6*2.99792e8/xaxisl);
             tflx = reverse(tflx);
             terr = reverse(terr);
+            tlsf = reverse(tlsf);
+        }
+
+        if (tflx.size() != tlam.size()) {
+            error("reading ", filename);
+            error("different size for flux and wavelength axis");
+            return false;
+        }
+
+        vec1b tgoodspec = is_finite(tflx) && is_finite(terr) && terr > 0;
+
+        // Construct synthetic filter for each spectral element
+        vec<1,astro::filter_t> tfilters(tlam.size());
+        for (uint_t il : range(tlam)) {
+            astro::filter_t flt;
+
+            double lsf = 0.0;
+            if (!tlsf.empty()) {
+                lsf = tlsf[il];
+            }
+
+            if (lsf < 0) {
+                error("reading ", filename);
+                error("line spread function cannot be negative (around lambda=", tlam[il], " Angstroms)");
+                return false;
+            }
+
+            if (lsf == 0.0) {
+                // No LSF, just use the simplest tophat filter.
+                flt.rlam = tlam[il];
+                flt.lam = vec1d({tlaml[il], tlamu[il]});
+                flt.res = vec1d({1.0, 1.0});
+            } else {
+                double l0 = tlam[il];
+                double dl = tlamu[il] - tlaml[il];
+
+                // Increasing width by 7*lsf brings us reliably to ~ zero transmission.
+                double dll = dl + 7*lsf;
+                // 81 uniform samples provides a good sampling in all cases.
+                // Maximum error is when lsf >> dl, and reaches at most ~0.1%.
+                uint_t npt = 81;
+                vec1d l = rgen(l0-dll/2, l0+dll/2, npt);
+
+                flt.lam = l;
+                flt.res = 0.5*(erf((l0+dl/2-l)/(sqrt(2)*lsf)) - erf((l0-dl/2-l)/(sqrt(2)*lsf)));
+            }
+
+            double ttot = integrate(flt.lam, flt.res);
+
+            if (!is_finite(ttot)) {
+                warning("reading ", filename);
+                warning("synthetic filter for spectral data (wavelength ", tlaml[il], " to ",
+                    tlamu[il], " um) has zero or invalid througput; ignored");
+                flt.res = replicate(0.0, flt.lam.size());
+                tgoodspec[il] = false;
+            } else {
+                flt.res /= ttot;
+            }
+
+            tfilters[il] = flt;
         }
 
         // Compute average CDELT
         min_cdelt = min(min_cdelt, median(tlamu-tlaml));
 
         // Identify good regions of the spectrum
-        vec1b tgoodspec = is_finite(tflx) && is_finite(terr) && terr > 0;
         if (count(tgoodspec) <= lambda_pad*2) {
             error("reading ", filename);
             error("this spectrum does not contain any valid point");
@@ -692,8 +858,7 @@ int vif_main(int argc, char* argv[]) {
         append(flx, tflx);
         append(err, terr);
         append(lam, tlam);
-        append(laml, tlaml);
-        append(lamu, tlamu);
+        append(filters, tfilters);
         append(goodspec, tgoodspec);
         append(goodspec_flag, tgoodspec_flag);
 
@@ -768,9 +933,24 @@ int vif_main(int argc, char* argv[]) {
     flx = flx[idl];
     err = err[idl];
     lam = lam[idl];
-    laml = laml[idl];
-    lamu = lamu[idl];
+    filters = filters[idl];
     goodspec_flag = goodspec_flag[idl];
+
+    vec1d lfmin(lam.size());
+    vec1d lfmax(lam.size());
+    {
+        vec1d llow(lam.size());
+        vec1d lup(lam.size());
+        for (uint_t i : range(lam)) {
+            llow[i] = filters[i].lam.front();
+            lup[i] = filters[i].lam.back();
+        }
+
+        for (uint_t i : range(lam)) {
+            lfmin[i] = min(llow[i-_]);
+            lfmax[i] = max(lup[_-i]);
+        }
+    }
 
     // Define redshift grid so as to have the requested number of samples per wavelength element
     double tdz = delta_z*min_cdelt/mean(lam);
@@ -1020,8 +1200,11 @@ int vif_main(int argc, char* argv[]) {
         // -----------------------------------------------------------------
         auto try_nlfit = [&](double tz, double& gchi2) {
             struct lam_t {
-                lam_t(vec1d tl, vec1d tu) : ll(std::move(tl)), lu(std::move(tu)) {}
+                lam_t(vec1d tl, vec1d tu, vec<1,astro::filter_t> tf) :
+                    ll(std::move(tl)), lu(std::move(tu)), lf(std::move(tf)) {}
+
                 vec1d ll, lu;
+                vec<1,astro::filter_t> lf;
             };
 
             auto model = [&](const lam_t& l, const vec1d& tp, uint_t only_line = npos) {
@@ -1042,12 +1225,12 @@ int vif_main(int argc, char* argv[]) {
                         double l0 = lines[il].lambda[isl]*(1.0+tz)*(1.0+dv/2.99792e5);
                         double amp = 1e-4*lines[il].ratio[isl]*tp[id_amp[il]];
 
-                        auto bl = bounds(l.ll, l0-5*lw, l0+5*lw);
+                        auto bl = bounds_filter(l.ll, l.lu, l0-5*lw, l0+5*lw);
                         if (bl[0] == npos) bl[0] = 0;
                         if (bl[1] == npos) bl[1] = l.ll.size();
                         for (uint_t ll : range(bl[0], bl[1])) {
-                            m.safe[ll] += integrate_gauss(
-                                l.ll.safe[ll], l.lu.safe[ll], l0, lw, amp
+                            m.safe[ll] += integrate_gauss_filter(
+                                l.lf.safe[ll], l0, lw, amp
                             );
                         }
                     }
@@ -1071,7 +1254,7 @@ int vif_main(int argc, char* argv[]) {
             opts.lower_limit = p_min;
             opts.frozen      = p_fixed;
 
-            lam_t lt{laml, lamu};
+            lam_t lt{lfmin, lfmax, filters};
             mpfit_result res = mpfitfun(tflx, terr, lt, model, p, opts);
 
             if (!use_global_chi2) {
@@ -1159,7 +1342,7 @@ int vif_main(int argc, char* argv[]) {
                 double l0_max = max(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
                 double l0_min = min(lines[il].lambda)*(1.0+tz)*(1.0+dv/2.99792e5);
 
-                auto bl = bounds(lam, l0_min-5*lw_max, l0_max+5*lw_max);
+                auto bl = bounds_filter(lfmin, lfmax, l0_min-5*lw_max, l0_max+5*lw_max);
                 if (bl[0] == npos) bl[0] = 0;
                 if (bl[1] == npos) bl[1] = lam.size();
 
@@ -1177,8 +1360,7 @@ int vif_main(int argc, char* argv[]) {
                     double amp = 1e-4*lines[il].ratio[isl];
 
                     for (uint_t ll : range(bl[0], bl[1])) {
-                        m.safe(iml,ll) +=
-                            integrate_gauss(laml.safe[ll], lamu.safe[ll], l0, lw, amp);
+                        m.safe(iml,ll) += integrate_gauss_filter(filters.safe[ll], l0, lw, amp);
                     }
                 }
             }
@@ -1439,7 +1621,16 @@ int vif_main(int argc, char* argv[]) {
                 auto& ttflx = tpl_flux[it];
 
                 vec1d tlam = tpl.lam*(1.0 + tz);
-                ttflx = interpolate(tpl.sed, tlam, lam);
+                ttflx.resize(lam.size());
+
+                for (uint_t il : range(lam)) {
+                    ttflx.safe[il] = astro::sed2flux(
+                        filters.safe[il].lam, filters.safe[il].res,
+                        tlam, tpl.sed
+                    );
+                }
+
+                // If input spectrum goes out of model coverage, assume zero
                 ttflx[where(!is_finite(ttflx) || lam > max(tlam) || lam < min(tlam))] = 0.0;
 
                 if (!use_mpfit) {
@@ -2356,8 +2547,15 @@ void print_help(const std::map<std::string,line_t>& db) {
         "format in addition to the default FITS tables. The lines and their fluxes will be "
         "saved in the '*_slfit_lines.cat' file, while the redshift probability distribution "
         "will be saved in '*_slfit_pz.cat'.");
-    bullet("flux_hdu=...", "HDU index of the FITS extension containing the flux.");
-    bullet("error_hdu=...", "HDU index of the FITS extension containing the uncertainty.");
+    bullet("flux_hdu=...", "HDU index (not name) of the FITS extension containing the flux, as a "
+        "1D image. Note that the primary HDU has index 0, so the first extension has index 1.");
+    bullet("error_hdu=...", "HDU index (not name) of the FITS extension containing the uncertainty "
+        "as a 1D image on the same wavelength/frequency grid as the flux. Note that the primary "
+        "HDU has index 0, so the first extension has index 1.");
+    bullet("lsf_hdu=...", "HDU index (not name) of the FITS extension containing the line spread "
+        "function, as 1D image on the same wavelength/frequency grid as the flux. Note that the "
+        "primary HDU has index 0, so the first extension has index 1. This HDU must include the "
+        "'BUNIT' keyword to specify the units of the LSF data.");
     bullet("verbose", "Set this flag to print the progress of the detection process in "
         "the terminal. Can be useful if something goes wrong, or just to understand what "
         "is going on.");
