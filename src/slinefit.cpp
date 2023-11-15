@@ -959,7 +959,7 @@ int vif_main(int argc, char* argv[]) {
 
     // Define width grid so as to have the requested number of samples per wavelength element
     double dwidth = 2.99792e5*delta_width*min_cdelt/mean(lam);
-    uint_t nwidth = ceil((width_max - width_min)/dwidth);
+    uint_t nwidth = std::max<uint_t>(1, ceil((width_max - width_min)/dwidth));
     vec1d width_grid = rgen(width_min, width_max, nwidth);
     if (lines.empty()) {
         width_grid = {100.0};
@@ -970,7 +970,7 @@ int vif_main(int argc, char* argv[]) {
     vec1d lyalpha_width_grid = width_grid;
     uint_t nlwidth = nwidth;
     if (is_finite(lyalpha_width_max)) {
-        nlwidth = ceil((lyalpha_width_max - width_min)/dwidth);
+        nlwidth = std::max<uint_t>(1, ceil((lyalpha_width_max - width_min)/dwidth));
         lyalpha_width_grid = rgen(width_min, lyalpha_width_max, nlwidth);
     }
 
@@ -981,7 +981,7 @@ int vif_main(int argc, char* argv[]) {
 
     // Define component offset grid so as to have the requested number of samples per wavelength element
     double dcoffset = 2.99792e5*delta_comp_offset*min_cdelt/mean(lam);
-    uint_t ncoffset = ceil((comp_offset_max - comp_offset_min)/dcoffset);
+    uint_t ncoffset = std::max<uint_t>(1, ceil((comp_offset_max - comp_offset_min)/dcoffset));
     vec1d comp_offset_grid = rgen(comp_offset_min, comp_offset_max, ncoffset);
 
     // Find which lines are covered by this spectrum
