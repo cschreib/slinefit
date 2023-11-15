@@ -1290,7 +1290,7 @@ int vif_main(int argc, char* argv[]) {
                 if (!fres.no_models) {
                     fres.models = vec2d(lines.size(), fres.model.size());
                     for (uint_t il : range(lines)) {
-                        fres.models(il,_) = model(lt, tp, il);
+                        fres.models(il,_) = model(lt, res.params, il);
                     }
                 }
             }
