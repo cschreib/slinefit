@@ -2302,6 +2302,8 @@ int vif_main(int argc, char* argv[]) {
     }
 
     if (save_line_models && !best_fit.models.empty()) {
+        otbl.write_columns("num_line_models", lines.size());
+
         // First bring back the models into the original wavelength grid
         vec2d bmodels = reshape2(best_fit.models, idl, orig_nlam, dnan);
 
