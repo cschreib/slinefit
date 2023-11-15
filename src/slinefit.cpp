@@ -2200,7 +2200,7 @@ int vif_main(int argc, char* argv[]) {
         eunit = "[A]";
         best_fit.flux  *= 1e-17; best_fit.flux_err        *= 1e-17;
         best_fit.cont  *= 1e-17; best_fit.cont_err        *= 1e-17;
-        best_fit.model *= 1e-17; best_fit.model_continuum *= 1e-17;
+        best_fit.model *= 1e-17; best_fit.model_continuum *= 1e-17; best_fit.models *= 1e-17;
     } else {
         lamname = "nu";
         lamname2 = "frequency";
