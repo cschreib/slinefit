@@ -1,3 +1,11 @@
+v2.3
+====
+
+Bug fixes:
+ - The model line profiles were incorrect when using the 'lsf_hdu' option, creating spurious
+   negative wings.
+
+
 v2.2
 ====
 

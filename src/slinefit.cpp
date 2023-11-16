@@ -3,7 +3,7 @@
 
 using namespace vif;
 
-const std::string SLINEFIT_VERSION = "2.2";
+const std::string SLINEFIT_VERSION = "2.3";
 
 // Structure to define a line or line group to be fitted simultaneously
 struct line_t {
