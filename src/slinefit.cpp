@@ -214,7 +214,7 @@ double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, 
     // amp*exp(-sqr(t - xc)/(2.0*sqr(xw)))/(sqrt(2*dpi)*xw)
 
     double xw2 = 2*sqr(xw);
-    double aw = amp/(sqrt(2*dpi)*xw);
+    double aw = amp*xw/sqrt(2*dpi);
 
     double res = 0.0;
     for (uint_t i : range(1, flt.lam.size())) {
@@ -223,7 +223,7 @@ double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, 
         double dl = l1 - l0;
 
         double m = (flt.res.safe[i] - flt.res.safe[i-1])/dl;
-        double o = flt.res.safe[i-1];
+        double o = flt.res.safe[i-1] - l0*m;
 
         res += (m*xc + o)*dl*integrate_gauss(l0, l1, xc, xw, amp)
           + (m*aw)*(exp(-sqr(l0 - xc)/xw2) - exp(-sqr(l1 - xc)/xw2));
