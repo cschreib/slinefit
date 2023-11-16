@@ -213,10 +213,20 @@ double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, 
     // Integrated flux within the filter 'flt' of:
     // amp*exp(-sqr(t - xc)/(2.0*sqr(xw)))/(sqrt(2*dpi)*xw)
 
-    double xw2 = 2*sqr(xw);
-    double aw = amp*xw/sqrt(2*dpi);
-
     double res = 0.0;
+    if (flt.lam.empty()) { return res; }
+
+    double xw2 = 2*sqr(xw);
+    double s2w = sqrt(2)*xw;
+    double aw = amp*xw/sqrt(2*dpi);
+    double a2 = 0.5*amp;
+
+    auto igauss = [&](double l) { return aw*exp(-sqr(l - xc)/xw2); };
+    auto ierf = [&](double l) { return a2*erf((l - xc)/s2w); };
+
+    double pg = igauss(flt.lam.safe[0]);
+    double pe = ierf(flt.lam.safe[0]);
+
     for (uint_t i : range(1, flt.lam.size())) {
         double l0 = flt.lam.safe[i-1];
         double l1 = flt.lam.safe[i];
@@ -225,8 +235,13 @@ double integrate_gauss_filter(const astro::filter_t& flt, double xc, double xw, 
         double m = (flt.res.safe[i] - flt.res.safe[i-1])/dl;
         double o = flt.res.safe[i-1] - l0*m;
 
-        res += (m*xc + o)*dl*integrate_gauss(l0, l1, xc, xw, amp)
-          + (m*aw)*(exp(-sqr(l0 - xc)/xw2) - exp(-sqr(l1 - xc)/xw2));
+        double ng = igauss(flt.lam.safe[i]);
+        double ne = ierf(flt.lam.safe[i]);
+
+        res += (m*xc + o)*(ne - pe) - m*(ng - pg);
+
+        pg = ng;
+        pe = ne;
     }
 
     return res;
