@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 2.6...4.0)
 project(slinefit-superbuild C CXX)
 
 if (NOT CMAKE_BUILD_TYPE)
@@ -21,7 +21,7 @@ ExternalProject_Add(cfitsio
     SOURCE_DIR ${PROJECT_SOURCE_DIR}/external/cfitsio
     DOWNLOAD_DIR ${PROJECT_SOURCE_DIR}/external/cfitsio
     GIT_REPOSITORY https://github.com/cschreib/cfitsio.git
-    GIT_TAG 9a9fbdba78f5583795f995c0f43007c191ff1b91
+    GIT_TAG fbfbc6d4dcd4b21796b106dae14c7640b1c273da
     CMAKE_ARGS
         -DBUILD_SHARED_LIBS=OFF
         -DUSE_PTHREADS=ON
@@ -38,7 +38,7 @@ ExternalProject_Add(vif
     SOURCE_DIR ${PROJECT_SOURCE_DIR}/external/vif
     DOWNLOAD_DIR ${PROJECT_SOURCE_DIR}/external/vif
     GIT_REPOSITORY https://github.com/cschreib/vif.git
-    GIT_TAG e64e07e3d5ee3ef2bf3365374e308384728b726f
+    GIT_TAG 705b13681f7f8563debf9801c9f03ac1eff1e07f
     CMAKE_ARGS
         -DNO_REFLECTION=ON
         -DNO_FFTW=ON

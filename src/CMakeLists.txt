@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 2.6...4.0)
 project(slinefit C CXX)
 
 if (NOT CMAKE_BUILD_TYPE)
