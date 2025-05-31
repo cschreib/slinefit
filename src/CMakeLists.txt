@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.6...4.0)
+cmake_minimum_required(VERSION 3.8...4.0)
 project(slinefit C CXX)
 
 if (NOT CMAKE_BUILD_TYPE)
@@ -14,11 +14,9 @@ set(NO_WCSLIB ON)
 
 find_package(vif REQUIRED)
 
-# Include dependencies
-message(STATUS ${VIF_INCLUDE_DIRS})
-include_directories(${VIF_INCLUDE_DIRS})
-
 # Build slinefit
 add_executable(slinefit slinefit.cpp)
-target_link_libraries(slinefit ${VIF_LIBRARIES})
+target_include_directories(slinefit PRIVATE ${VIF_INCLUDE_DIRS})
+target_link_libraries(slinefit PRIVATE ${VIF_LIBRARIES})
+target_compile_features(slinefit PRIVATE cxx_std_11)
 install(TARGETS slinefit DESTINATION bin)
